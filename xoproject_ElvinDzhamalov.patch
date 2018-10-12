@@ -1,0 +1,3167 @@
+From a17f55b4e26cb94b0d46d5217091052febdf05a4 Mon Sep 17 00:00:00 2001
+From: aureaedzhamalov <elvin.dzhamalov@aurea.com>
+Date: Fri, 12 Oct 2018 23:37:34 +0400
+Subject: [PATCH 1/3] My submission
+XOV:v3 new task
+
+---
+ XOProject.Tests/PortfolioControllerTests.cs | 58 +++++++++++++++++++
+ XOProject.Tests/ShareControllerTests.cs     | 43 +++++++++++++-
+ XOProject.Tests/TradeControllerTests.cs     | 60 ++++++++++++++++++++
+ XOProject/Controller/PortfolioController.cs | 12 ++--
+ XOProject/Controller/ShareController.cs     | 63 +++++++++++----------
+ XOProject/Controller/TradeController.cs     | 58 ++++++++++++-------
+ XOProject/Model/TradeAnalysis.cs            |  8 +--
+ XOProject/Repository/ExchangeContext.cs     |  2 +
+ XOProject/Repository/GenericRepository.cs   |  4 +-
+ XOProject/Repository/IGenericRepository.cs  |  2 +-
+ XOProject/Repository/IShareRepository.cs    |  6 +-
+ XOProject/Repository/ITradeRepository.cs    |  8 ++-
+ XOProject/Repository/ShareRepository.cs     | 10 ++++
+ XOProject/Repository/TradeRepository.cs     | 10 ++++
+ XOProject/appsettings.json                  |  2 +-
+ 15 files changed, 276 insertions(+), 70 deletions(-)
+ create mode 100644 XOProject.Tests/PortfolioControllerTests.cs
+ create mode 100644 XOProject.Tests/TradeControllerTests.cs
+
+diff --git a/XOProject.Tests/PortfolioControllerTests.cs b/XOProject.Tests/PortfolioControllerTests.cs
+new file mode 100644
+index 0000000..b6397be
+--- /dev/null
++++ b/XOProject.Tests/PortfolioControllerTests.cs
+@@ -0,0 +1,58 @@
++﻿using XOProject.Controller;
++using Microsoft.AspNetCore.Mvc;
++using Moq;
++using NUnit.Framework;
++using System.Threading.Tasks;
++
++namespace XOProject.Tests
++{
++    class PortfolioControllerTests
++    {
++        [Test]
++        public async Task GetPortfolioInfo_ReturnsNotNull()
++        {
++            int portfolioId = 1;
++
++            var portfolioRepositoryMock = new Mock<IPortfolioRepository>();
++
++            portfolioRepositoryMock
++                .Setup(x => x.GetAsync(It.Is<int>(id => id == portfolioId)))
++                .Returns(Task.FromResult(new Portfolio() { Id = portfolioId, Name = "John Doe" }));
++
++            var portfolioController = new PortfolioController(portfolioRepositoryMock.Object);
++
++            var result = await portfolioController.GetPortfolioInfo(portfolioId) as OkObjectResult;
++
++            Assert.NotNull(result);
++
++            var resultPortfolio = result.Value as Portfolio;
++
++            Assert.NotNull(resultPortfolio);
++
++            Assert.AreEqual(portfolioId, resultPortfolio.Id);
++        }
++
++        [Test]
++        public async Task Post_ShouldInsertPortfolio()
++        {
++            var portfolioRepositoryMock = new Mock<IPortfolioRepository>();
++
++            var portfolioController = new PortfolioController(portfolioRepositoryMock.Object);
++
++            var portfolio = new Portfolio()
++            {
++                Name = "John Smith"
++            };
++
++            // Act
++            var result = await portfolioController.Post(portfolio);
++
++            // Assert
++            Assert.NotNull(result);
++
++            var createdResult = result as CreatedResult;
++            Assert.NotNull(createdResult);
++            Assert.AreEqual(201, createdResult.StatusCode);
++        }
++    }
++}
+diff --git a/XOProject.Tests/ShareControllerTests.cs b/XOProject.Tests/ShareControllerTests.cs
+index cfcfac2..cfb049e 100644
+--- a/XOProject.Tests/ShareControllerTests.cs
++++ b/XOProject.Tests/ShareControllerTests.cs
+@@ -4,6 +4,7 @@ using XOProject.Controller;
+ using Microsoft.AspNetCore.Mvc;
+ using NUnit.Framework;
+ using Moq;
++using System.Collections.Generic;
+ 
+ namespace XOProject.Tests
+ {
+@@ -18,6 +19,30 @@ namespace XOProject.Tests
+             _shareController = new ShareController(_shareRepositoryMock.Object);
+         }
+ 
++        [Test]
++        public async Task Get_ReturnsNotNull()
++        {
++            string symbol = "REL";
++
++            _shareRepositoryMock
++                .Setup(x => x.GetBySymbol(It.Is<string>(s => s == symbol)))
++                .Returns(Task.FromResult(new List<HourlyShareRate>(new[]
++                    {
++                        new HourlyShareRate() { Id = 1, Symbol = symbol, Rate = 100, TimeStamp = DateTime.Now }
++                    }))
++                );
++
++            var result = await _shareController.Get(symbol) as OkObjectResult;
++
++            Assert.NotNull(result);
++
++            var resultList = result.Value as List<HourlyShareRate>;
++
++            Assert.NotNull(resultList);
++
++            Assert.NotZero(resultList.Count);
++        }
++
+         [Test]
+         public async Task Post_ShouldInsertHourlySharePrice()
+         {
+@@ -40,6 +65,22 @@ namespace XOProject.Tests
+             Assert.NotNull(createdResult);
+             Assert.AreEqual(201, createdResult.StatusCode);
+         }
+-        
++
++        [Test]
++        public async Task GetLatestPrice_ShouldReturnLastPrice()
++        {
++            _shareRepositoryMock.Setup(x => x.GetBySymbol(It.Is<string>(s => s.Equals("REL"))))
++                .Returns(Task.FromResult(new List<HourlyShareRate>(new[]
++                    {
++                        new HourlyShareRate() { Symbol = "REL", Rate = 50, TimeStamp = DateTime.Now.AddDays(-1) },
++                        new HourlyShareRate() { Symbol = "REL", Rate = 100, TimeStamp = DateTime.Now },
++                        new HourlyShareRate() { Symbol = "REL", Rate = 150, TimeStamp = DateTime.Now.AddDays(-2) },
++                    }))
++                );
++
++            var result = await _shareController.GetLatestPrice("REL") as OkObjectResult;
++
++            Assert.AreEqual(100, result.Value);
++        }
+     }
+ }
+diff --git a/XOProject.Tests/TradeControllerTests.cs b/XOProject.Tests/TradeControllerTests.cs
+new file mode 100644
+index 0000000..89f4e05
+--- /dev/null
++++ b/XOProject.Tests/TradeControllerTests.cs
+@@ -0,0 +1,60 @@
++﻿using XOProject.Controller;
++using Microsoft.AspNetCore.Mvc;
++using Moq;
++using NUnit.Framework;
++using System;
++using System.Collections.Generic;
++using System.Threading.Tasks;
++
++
++namespace XOProject.Tests
++{
++    class TradeControllerTests
++    {
++        Mock<IShareRepository> _shareRepositoryMock = new Mock<IShareRepository>();
++        Mock<ITradeRepository> _tradeRepositoryMock = new Mock<ITradeRepository>();
++        Mock<IPortfolioRepository> _portfolioRepositoryMock = new Mock<IPortfolioRepository>();
++
++        int portfolioId = 1;
++
++        public TradeControllerTests()
++        {
++            _portfolioRepositoryMock
++                .Setup(x => x.GetAsync(It.Is<int>(id => id == portfolioId)))
++                .Returns<int>(x => Task.FromResult(new Portfolio() { Id = portfolioId, Name = "John Doe" }));
++
++            _shareRepositoryMock.Setup(x => x.GetBySymbol(It.Is<string>(s => s.Equals("REL"))))
++                .Returns(Task.FromResult(new List<HourlyShareRate>(new[]
++                    {
++                        new HourlyShareRate() { Symbol = "REL", Rate = 50, TimeStamp = DateTime.Now.AddDays(-1) },
++                        new HourlyShareRate() { Symbol = "REL", Rate = 100, TimeStamp = DateTime.Now },
++                        new HourlyShareRate() { Symbol = "REL", Rate = 150, TimeStamp = DateTime.Now.AddDays(-2) },
++                    }))
++                );
++
++            _tradeRepositoryMock.Setup(x => x.GetAllTradings(portfolioId))
++                .Returns(Task.FromResult(new List<Trade>(new[]
++                    {
++                        new Trade() { Action = "BUY", NoOfShares = 120, PortfolioId = portfolioId, Price = 12000, Symbol = "REL" },
++                        new Trade() { Action = "SELL", NoOfShares = 40, PortfolioId = portfolioId, Price = 4000, Symbol = "REL" }
++                    }))
++                );
++        }
++
++        [Test]
++        public async Task Get_ShouldReturnAllTradings()
++        {
++            var tradeController = new TradeController(_shareRepositoryMock.Object, _tradeRepositoryMock.Object, _portfolioRepositoryMock.Object);
++
++            var result = await tradeController.GetAllTradings(portfolioId) as OkObjectResult;
++
++            Assert.NotNull(result);
++
++            var resultList = result.Value as List<Trade>;
++
++            Assert.NotNull(result);
++
++            Assert.NotZero(resultList.Count);
++        }
++    }
++}
+diff --git a/XOProject/Controller/PortfolioController.cs b/XOProject/Controller/PortfolioController.cs
+index 7e5a8ae..d657ca4 100644
+--- a/XOProject/Controller/PortfolioController.cs
++++ b/XOProject/Controller/PortfolioController.cs
+@@ -4,25 +4,25 @@ using Microsoft.AspNetCore.Mvc;
+ 
+ namespace XOProject.Controller
+ {
++
+     [Route("api/Portfolio")]
+     public class PortfolioController : ControllerBase
+     {
+         private IPortfolioRepository _portfolioRepository { get; set; }
+ 
+-        public PortfolioController(IShareRepository shareRepository, ITradeRepository tradeRepository, IPortfolioRepository portfolioRepository)
++        public PortfolioController(IPortfolioRepository portfolioRepository)
+         {
+             _portfolioRepository = portfolioRepository;
+         }
+ 
+-        [HttpGet("{portFolioid}")]
+-        public async Task<IActionResult> GetPortfolioInfo([FromRoute]int portFolioid)
++        [HttpGet("{portfolioId}")]
++        public async Task<IActionResult> GetPortfolioInfo([FromRoute]int portfolioId)
+         {
+-            var portfolio = _portfolioRepository.GetAll().Where(x => x.Id.Equals(portFolioid));
+-            
++            var portfolio = await _portfolioRepository.GetAsync(portfolioId);
++
+             return Ok(portfolio);
+         }
+ 
+-
+         [HttpPost]
+         public async Task<IActionResult> Post([FromBody]Portfolio value)
+         {
+diff --git a/XOProject/Controller/ShareController.cs b/XOProject/Controller/ShareController.cs
+index 42138cc..a1a0933 100644
+--- a/XOProject/Controller/ShareController.cs
++++ b/XOProject/Controller/ShareController.cs
+@@ -8,40 +8,43 @@ namespace XOProject.Controller
+     [Route("api/Share")]
+     public class ShareController : ControllerBase
+     {
+-        public IShareRepository _shareRepository { get; set; }
+-
+-        public ShareController(IShareRepository shareRepository)
++        public IShareRepository _shareRepository { get; set; }
++
++        public ShareController(IShareRepository shareRepository)
++        {
++            _shareRepository = shareRepository;
++        }
++
++        [HttpGet("{symbol}")]
++        public async Task<IActionResult> Get([FromRoute]string symbol)
+         {
+-            _shareRepository = shareRepository;
++            var shares = await _shareRepository.GetBySymbol(symbol);
++            return Ok(shares);
+         }
+ 
+-        [HttpGet("{symbol}")]
+-        public async Task<IActionResult> Get([FromRoute]string symbol)
+-        {
+-            var shares = _shareRepository.Query().Where(x => x.Symbol.Equals(symbol)).ToList();
+-            return Ok(shares);
+-        }
+-
+-
+-        [HttpGet("{symbol}/Latest")]
+-        public async Task<IActionResult> GetLatestPrice([FromRoute]string symbol)
+-        {
+-            var share = await _shareRepository.Query().Where(x => x.Symbol.Equals(symbol)).FirstOrDefaultAsync();
+-            return Ok(share?.Rate);
++        [HttpGet("{symbol}/Latest")]
++        public async Task<IActionResult> GetLatestPrice([FromRoute]string symbol)
++        {
++            decimal? rate = (await _shareRepository.GetBySymbol(symbol))
++                .OrderByDescending(x => x.TimeStamp)
++                .FirstOrDefault()
++                ?.Rate;
++
++            return Ok(rate);
++        }
++
++        [HttpPost]
++        public async Task<IActionResult> Post([FromBody]HourlyShareRate value)
++        {
++            if (!ModelState.IsValid)
++            {
++                return BadRequest(ModelState);
++            }
++
++            await _shareRepository.InsertAsync(value);
++
++            return Created($"Share/{value.Id}", value);
+         }
+ 
+-        [HttpPost]
+-        public async Task<IActionResult> Post([FromBody]HourlyShareRate value)
+-        {
+-            if (!ModelState.IsValid)
+-            {
+-                return BadRequest(ModelState);
+-            }
+-
+-            await _shareRepository.InsertAsync(value);
+-
+-            return Created($"Share/{value.Id}", value);
+-        }
+-        
+     }
+ }
+diff --git a/XOProject/Controller/TradeController.cs b/XOProject/Controller/TradeController.cs
+index 583d211..bde408d 100644
+--- a/XOProject/Controller/TradeController.cs
++++ b/XOProject/Controller/TradeController.cs
+@@ -9,26 +9,25 @@ using Microsoft.EntityFrameworkCore;
+ 
+ namespace XOProject.Controller
+ {
+-    [Route("api/Trade/")]
+-    public class TradeController : ControllerBase
+-    {
+-        private IShareRepository _shareRepository { get; set; }
+-        private ITradeRepository _tradeRepository { get; set; }
+-        private IPortfolioRepository _portfolioRepository { get; set; }
+-
+-        public TradeController(IShareRepository shareRepository, ITradeRepository tradeRepository, IPortfolioRepository portfolioRepository)
+-        {
+-            _shareRepository = shareRepository;
+-            _tradeRepository = tradeRepository;
+-            _portfolioRepository = portfolioRepository;
++    [Route("api/Trade")]
++    public class TradeController : ControllerBase
++    {
++        private IShareRepository _shareRepository { get; set; }
++        private ITradeRepository _tradeRepository { get; set; }
++        private IPortfolioRepository _portfolioRepository { get; set; }
++
++        public TradeController(IShareRepository shareRepository, ITradeRepository tradeRepository, IPortfolioRepository portfolioRepository)
++        {
++            _shareRepository = shareRepository;
++            _tradeRepository = tradeRepository;
++            _portfolioRepository = portfolioRepository;
+         }
+ 
+-
+-        [HttpGet("{portfolioid}")]
+-        public async Task<IActionResult> GetAllTradings([FromRoute]int portFolioid)
+-        {
+-            var trade = _tradeRepository.Query().Where(x => x.PortfolioId.Equals(portFolioid));
+-            return Ok(trade);
++        [HttpGet("{portfolioId}")]
++        public async Task<IActionResult> GetAllTradings([FromRoute]int portfolioId)
++        {
++            var trade = await _tradeRepository.GetAllTradings(portfolioId);
++            return Ok(trade);
+         }
+ 
+ 
+@@ -42,11 +41,26 @@ namespace XOProject.Controller
+         [HttpGet("Analysis/{symbol}")]
+         public async Task<IActionResult> GetAnalysis([FromRoute]string symbol)
+         {
+-            var result = new List<TradeAnalysis>();
+-            
+-            return Ok(result);
+-        }
++            var list = new List<TradeAnalysis>();
++
++            //group actions
++            var groupActions = _tradeRepository.Query().Where(x => x.Symbol.Equals(symbol)).GroupBy(x => x.Action);
+ 
++            foreach (var ga in groupActions)
++            {
++                var ta = new TradeAnalysis
++                {
++                    Maximum = ga.Max(x => x.NoOfShares),
++                    Minimum = ga.Min(x => x.NoOfShares),
++                    Average = (decimal)ga.Average(x => x.NoOfShares),
++                    Sum = ga.Sum(x => x.NoOfShares),
++                    Action = ga.Select(x => x.Action).FirstOrDefault()
++                };
++               
++                list.Add(ta);
++            }
+ 
++            return Ok(list);
++        }
+     }
+ }
+diff --git a/XOProject/Model/TradeAnalysis.cs b/XOProject/Model/TradeAnalysis.cs
+index 55cf46a..1ae4d3b 100644
+--- a/XOProject/Model/TradeAnalysis.cs
++++ b/XOProject/Model/TradeAnalysis.cs
+@@ -7,13 +7,13 @@ namespace XOProject
+ {
+     public class TradeAnalysis
+     {
+-        public double Sum { get; set; }
++        public decimal Sum { get; set; }
+ 
+-        public double Average { get; set; }
++        public decimal Average { get; set; }
+ 
+-        public double Maximum { get; set; }
++        public decimal Maximum { get; set; }
+ 
+-        public double Minimum { get; set; }
++        public decimal Minimum { get; set; }
+ 
+         public string Action { get; set; }
+     }
+diff --git a/XOProject/Repository/ExchangeContext.cs b/XOProject/Repository/ExchangeContext.cs
+index 210b32b..8ffd1e4 100644
+--- a/XOProject/Repository/ExchangeContext.cs
++++ b/XOProject/Repository/ExchangeContext.cs
+@@ -1,11 +1,13 @@
+ ﻿using Microsoft.EntityFrameworkCore;
+ using System;
+ using System.Collections.Generic;
++using System.Diagnostics.CodeAnalysis;
+ using System.Linq;
+ using System.Threading.Tasks;
+ 
+ namespace XOProject
+ {
++    [ExcludeFromCodeCoverage]
+     public class ExchangeContext : DbContext
+     {
+         public ExchangeContext()
+diff --git a/XOProject/Repository/GenericRepository.cs b/XOProject/Repository/GenericRepository.cs
+index 9aa2497..f74e745 100644
+--- a/XOProject/Repository/GenericRepository.cs
++++ b/XOProject/Repository/GenericRepository.cs
+@@ -9,7 +9,7 @@ namespace XOProject
+     {
+         protected ExchangeContext _dbContext { get; set; }
+ 
+-        public async Task<T> GetAsync(string id)
++        public async Task<T> GetAsync(int id)
+         {
+             return await _dbContext.FindAsync<T>(id);
+         }
+@@ -31,4 +31,4 @@ namespace XOProject
+             await _dbContext.SaveChangesAsync();
+         }
+     }
+-}
+\ No newline at end of file
++}
+diff --git a/XOProject/Repository/IGenericRepository.cs b/XOProject/Repository/IGenericRepository.cs
+index 150318e..f1476a1 100644
+--- a/XOProject/Repository/IGenericRepository.cs
++++ b/XOProject/Repository/IGenericRepository.cs
+@@ -5,7 +5,7 @@ namespace XOProject
+ {
+     public interface IGenericRepository<T>
+     {
+-        Task<T> GetAsync(string id);
++        Task<T> GetAsync(int id);
+ 
+         IQueryable<T> Query();
+ 
+diff --git a/XOProject/Repository/IShareRepository.cs b/XOProject/Repository/IShareRepository.cs
+index 8ea8ff9..dc4febf 100644
+--- a/XOProject/Repository/IShareRepository.cs
++++ b/XOProject/Repository/IShareRepository.cs
+@@ -1,6 +1,10 @@
+-﻿namespace XOProject
++﻿using System.Collections.Generic;
++using System.Threading.Tasks;
++
++namespace XOProject
+ {
+     public interface IShareRepository : IGenericRepository<HourlyShareRate>
+     {
++        Task<List<HourlyShareRate>> GetBySymbol(string symbol);
+     }
+ }
+\ No newline at end of file
+diff --git a/XOProject/Repository/ITradeRepository.cs b/XOProject/Repository/ITradeRepository.cs
+index f2cd3e4..d152261 100644
+--- a/XOProject/Repository/ITradeRepository.cs
++++ b/XOProject/Repository/ITradeRepository.cs
+@@ -1,6 +1,10 @@
+-﻿namespace XOProject
++﻿using System.Collections.Generic;
++using System.Threading.Tasks;
++
++namespace XOProject
+ {
+     public interface ITradeRepository : IGenericRepository<Trade>
+-    {
++    { 
++        Task<List<Trade>> GetAllTradings(int portFolioId);
+     }
+ }
+\ No newline at end of file
+diff --git a/XOProject/Repository/ShareRepository.cs b/XOProject/Repository/ShareRepository.cs
+index cf4f79f..40c0185 100644
+--- a/XOProject/Repository/ShareRepository.cs
++++ b/XOProject/Repository/ShareRepository.cs
+@@ -1,3 +1,8 @@
++using Microsoft.EntityFrameworkCore;
++using System.Collections.Generic;
++using System.Linq;
++using System.Threading.Tasks;
++
+ namespace XOProject
+ {
+     public class ShareRepository : GenericRepository<HourlyShareRate>, IShareRepository
+@@ -6,5 +11,10 @@ namespace XOProject
+         {
+             _dbContext = dbContext;
+         }
++
++        public Task<List<HourlyShareRate>> GetBySymbol(string symbol)
++        {
++            return Query().Where(x => x.Symbol.Equals(symbol)).ToListAsync();
++        }
+     }
+ }
+\ No newline at end of file
+diff --git a/XOProject/Repository/TradeRepository.cs b/XOProject/Repository/TradeRepository.cs
+index 2836fb4..dcf3144 100644
+--- a/XOProject/Repository/TradeRepository.cs
++++ b/XOProject/Repository/TradeRepository.cs
+@@ -1,3 +1,8 @@
++using Microsoft.EntityFrameworkCore;
++using System.Collections.Generic;
++using System.Linq;
++using System.Threading.Tasks;
++
+ namespace XOProject
+ {
+     public class TradeRepository : GenericRepository<Trade>, ITradeRepository
+@@ -6,5 +11,10 @@ namespace XOProject
+         {
+             _dbContext = dbContext;
+         }
++
++        public Task<List<Trade>> GetAllTradings(int portFolioId)
++        {
++            return Query().Where(x => x.PortfolioId.Equals(portFolioId)).ToListAsync();
++        }
+     }
+ }
+\ No newline at end of file
+diff --git a/XOProject/appsettings.json b/XOProject/appsettings.json
+index 0a48178..9508594 100644
+--- a/XOProject/appsettings.json
++++ b/XOProject/appsettings.json
+@@ -1,6 +1,6 @@
+ ﻿{
+   "ConnectionStrings": {
+-    "DefaultConnection": "Server=.\\SQLEXPRESS;Database=XOProjectDb;Trusted_Connection=True;"
++    "DefaultConnection": "Server=(local);Database=XOProjectDb;Trusted_Connection=True;"
+   },
+   "Logging": {
+     "IncludeScopes": false,
+-- 
+2.17.0.windows.1
+
+
+From 555eb84fcce739372662a30697cad36fa136847d Mon Sep 17 00:00:00 2001
+From: aureaedzhamalov <elvin.dzhamalov@aurea.com>
+Date: Fri, 12 Oct 2018 23:55:27 +0400
+Subject: [PATCH 2/3] My submission
+XOV:v3 new task
+
+---
+ ...SKTOP-77IOTPG 2018-10-12 23_52_33.coverage |  Bin 0 -> 83545 bytes
+ XOProject.Tests/TradeControllerTests.cs       |   17 +
+ coverage-hits.txt                             |  101 +
+ coverage.json                                 | 2073 +++++++++++++++++
+ 4 files changed, 2191 insertions(+)
+ create mode 100644 TestResults/4b713bd6-f0ac-47f8-9fbc-5c2cd2563281/Elvin_DESKTOP-77IOTPG 2018-10-12 23_52_33.coverage
+ create mode 100644 coverage-hits.txt
+ create mode 100644 coverage.json
+
+diff --git a/TestResults/4b713bd6-f0ac-47f8-9fbc-5c2cd2563281/Elvin_DESKTOP-77IOTPG 2018-10-12 23_52_33.coverage b/TestResults/4b713bd6-f0ac-47f8-9fbc-5c2cd2563281/Elvin_DESKTOP-77IOTPG 2018-10-12 23_52_33.coverage
+new file mode 100644
+index 0000000000000000000000000000000000000000..5d4eaa818c1b7f95604635ae491f251a4d8369a1
+GIT binary patch
+literal 83545
+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
+S2Qy)II?m;VQs~MK@&5thGxyp6
+
+literal 0
+HcmV?d00001
+
+diff --git a/XOProject.Tests/TradeControllerTests.cs b/XOProject.Tests/TradeControllerTests.cs
+index 89f4e05..b19a481 100644
+--- a/XOProject.Tests/TradeControllerTests.cs
++++ b/XOProject.Tests/TradeControllerTests.cs
+@@ -44,17 +44,34 @@ namespace XOProject.Tests
+         [Test]
+         public async Task Get_ShouldReturnAllTradings()
+         {
++            // Arrange
+             var tradeController = new TradeController(_shareRepositoryMock.Object, _tradeRepositoryMock.Object, _portfolioRepositoryMock.Object);
+ 
++            // Act
+             var result = await tradeController.GetAllTradings(portfolioId) as OkObjectResult;
+ 
++            // Assert
+             Assert.NotNull(result);
+ 
+             var resultList = result.Value as List<Trade>;
+ 
++            Assert.NotZero(resultList.Count);
++        }
++
++        public async Task Get_ShouldReturnAnalysis()
++        {
++            // Arrange
++            var tradeController = new TradeController(_shareRepositoryMock.Object, _tradeRepositoryMock.Object, _portfolioRepositoryMock.Object);
++
++            // Act
++            var result = await tradeController.GetAnalysis("REL") as OkObjectResult;
++
++            // Assert
+             Assert.NotNull(result);
++            var resultList = result.Value as List<TradeAnalysis>;
+ 
+             Assert.NotZero(resultList.Count);
++
+         }
+     }
+ }
+diff --git a/coverage-hits.txt b/coverage-hits.txt
+new file mode 100644
+index 0000000..9881c2d
+--- /dev/null
++++ b/coverage-hits.txt
+@@ -0,0 +1,101 @@
++45
++47
++104
++105
++103
++106
++108
++102
++107
++109
++44
++104
++105
++103
++47
++110
++114
++112
++116
++102
++113
++117
++44
++120
++121
++119
++37
++41
++43
++39
++122
++124
++118
++123
++125
++41
++43
++39
++41
++43
++39
++41
++43
++39
++128
++130
++118
++126
++127
++38
++126
++127
++38
++126
++127
++38
++42
++129
++131
++41
++43
++39
++132
++136
++134
++138
++118
++135
++139
++36
++41
++43
++39
++41
++43
++39
++41
++43
++39
++61
++55
++59
++57
++53
++61
++55
++59
++57
++53
++146
++147
++141
++148
++143
++149
++145
++150
++152
++142
++151
++153
+diff --git a/coverage.json b/coverage.json
+new file mode 100644
+index 0000000..1f49c34
+--- /dev/null
++++ b/coverage.json
+@@ -0,0 +1,2073 @@
++{
++  "SourcePath": "C:\\Users\\Elvin\\Desktop\\CrossExchange\\CrossExchange\\",
++  "HitsFile": "C:\\Users\\Elvin\\Desktop\\CrossExchange\\CrossExchange\\coverage-hits.txt",
++  "ExtraAssemblies": [
++    "C:\\Users\\Elvin\\Desktop\\CrossExchange\\CrossExchange\\XOProject.Tests\\bin\\Debug\\netcoreapp2.0\\dotnet-minicover.dll"
++  ],
++  "Assemblies": [
++    {
++      "Name": "XO-Project",
++      "SourceFiles": {
++        "XOProject\\Controller\\PortfolioController.cs": {
++          "Instructions": [
++            {
++              "Id": 102,
++              "StartLine": 11,
++              "EndLine": 11,
++              "StartColumn": 61,
++              "EndColumn": 65,
++              "Class": "XOProject.Controller.PortfolioController",
++              "Method": "get__portfolioRepository",
++              "MethodFullName": "XOProject.IPortfolioRepository XOProject.Controller.PortfolioController::get__portfolioRepository()",
++              "Instruction": "IL_0000: ldarg "
++            },
++            {
++              "Id": 103,
++              "StartLine": 11,
++              "EndLine": 11,
++              "StartColumn": 66,
++              "EndColumn": 70,
++              "Class": "XOProject.Controller.PortfolioController",
++              "Method": "set__portfolioRepository",
++              "MethodFullName": "System.Void XOProject.Controller.PortfolioController::set__portfolioRepository(XOProject.IPortfolioRepository)",
++              "Instruction": "IL_0000: ldarg "
++            },
++            {
++              "Id": 104,
++              "StartLine": 13,
++              "EndLine": 13,
++              "StartColumn": 9,
++              "EndColumn": 77,
++              "Class": "XOProject.Controller.PortfolioController",
++              "Method": ".ctor",
++              "MethodFullName": "System.Void XOProject.Controller.PortfolioController::.ctor(XOProject.IPortfolioRepository)",
++              "Instruction": "IL_0000: ldarg "
++            },
++            {
++              "Id": 105,
++              "StartLine": 15,
++              "EndLine": 15,
++              "StartColumn": 13,
++              "EndColumn": 56,
++              "Class": "XOProject.Controller.PortfolioController",
++              "Method": ".ctor",
++              "MethodFullName": "System.Void XOProject.Controller.PortfolioController::.ctor(XOProject.IPortfolioRepository)",
++              "Instruction": "IL_0008: ldarg "
++            },
++            {
++              "Id": 106,
++              "StartLine": 21,
++              "EndLine": 21,
++              "StartColumn": 13,
++              "EndColumn": 78,
++              "Class": "XOProject.Controller.PortfolioController/<GetPortfolioInfo>d__5",
++              "Method": "MoveNext",
++              "MethodFullName": "System.Void XOProject.Controller.PortfolioController/<GetPortfolioInfo>d__5::MoveNext()",
++              "Instruction": "IL_000f: ldarg "
++            },
++            {
++              "Id": 107,
++              "StartLine": 23,
++              "EndLine": 23,
++              "StartColumn": 13,
++              "EndColumn": 34,
++              "Class": "XOProject.Controller.PortfolioController/<GetPortfolioInfo>d__5",
++              "Method": "MoveNext",
++              "MethodFullName": "System.Void XOProject.Controller.PortfolioController/<GetPortfolioInfo>d__5::MoveNext()",
++              "Instruction": "IL_0094: ldarg "
++            },
++            {
++              "Id": 108,
++              "StartLine": 21,
++              "EndLine": 21,
++              "StartColumn": 13,
++              "EndColumn": 78,
++              "Class": "XOProject.Controller.PortfolioController/<GetPortfolioInfo>d__5",
++              "Method": "MoveNext",
++              "MethodFullName": "System.Void XOProject.Controller.PortfolioController/<GetPortfolioInfo>d__5::MoveNext()",
++              "Instruction": "IL_000f: ldarg "
++            },
++            {
++              "Id": 109,
++              "StartLine": 23,
++              "EndLine": 23,
++              "StartColumn": 13,
++              "EndColumn": 34,
++              "Class": "XOProject.Controller.PortfolioController/<GetPortfolioInfo>d__5",
++              "Method": "MoveNext",
++              "MethodFullName": "System.Void XOProject.Controller.PortfolioController/<GetPortfolioInfo>d__5::MoveNext()",
++              "Instruction": "IL_0094: ldarg "
++            },
++            {
++              "Id": 110,
++              "StartLine": 29,
++              "EndLine": 29,
++              "StartColumn": 13,
++              "EndColumn": 37,
++              "Class": "XOProject.Controller.PortfolioController/<Post>d__6",
++              "Method": "MoveNext",
++              "MethodFullName": "System.Void XOProject.Controller.PortfolioController/<Post>d__6::MoveNext()",
++              "Instruction": "IL_0012: ldarg "
++            },
++            {
++              "Id": 111,
++              "StartLine": 31,
++              "EndLine": 31,
++              "StartColumn": 17,
++              "EndColumn": 47,
++              "Class": "XOProject.Controller.PortfolioController/<Post>d__6",
++              "Method": "MoveNext",
++              "MethodFullName": "System.Void XOProject.Controller.PortfolioController/<Post>d__6::MoveNext()",
++              "Instruction": "IL_002a: ldarg "
++            },
++            {
++              "Id": 112,
++              "StartLine": 34,
++              "EndLine": 34,
++              "StartColumn": 13,
++              "EndColumn": 59,
++              "Class": "XOProject.Controller.PortfolioController/<Post>d__6",
++              "Method": "MoveNext",
++              "MethodFullName": "System.Void XOProject.Controller.PortfolioController/<Post>d__6::MoveNext()",
++              "Instruction": "IL_0046: ldarg "
++            },
++            {
++              "Id": 113,
++              "StartLine": 36,
++              "EndLine": 36,
++              "StartColumn": 13,
++              "EndColumn": 60,
++              "Class": "XOProject.Controller.PortfolioController/<Post>d__6",
++              "Method": "MoveNext",
++              "MethodFullName": "System.Void XOProject.Controller.PortfolioController/<Post>d__6::MoveNext()",
++              "Instruction": "IL_00b7: ldarg "
++            },
++            {
++              "Id": 114,
++              "StartLine": 29,
++              "EndLine": 29,
++              "StartColumn": 13,
++              "EndColumn": 37,
++              "Class": "XOProject.Controller.PortfolioController/<Post>d__6",
++              "Method": "MoveNext",
++              "MethodFullName": "System.Void XOProject.Controller.PortfolioController/<Post>d__6::MoveNext()",
++              "Instruction": "IL_0012: ldarg "
++            },
++            {
++              "Id": 115,
++              "StartLine": 31,
++              "EndLine": 31,
++              "StartColumn": 17,
++              "EndColumn": 47,
++              "Class": "XOProject.Controller.PortfolioController/<Post>d__6",
++              "Method": "MoveNext",
++              "MethodFullName": "System.Void XOProject.Controller.PortfolioController/<Post>d__6::MoveNext()",
++              "Instruction": "IL_002a: ldarg "
++            },
++            {
++              "Id": 116,
++              "StartLine": 34,
++              "EndLine": 34,
++              "StartColumn": 13,
++              "EndColumn": 59,
++              "Class": "XOProject.Controller.PortfolioController/<Post>d__6",
++              "Method": "MoveNext",
++              "MethodFullName": "System.Void XOProject.Controller.PortfolioController/<Post>d__6::MoveNext()",
++              "Instruction": "IL_0046: ldarg "
++            },
++            {
++              "Id": 117,
++              "StartLine": 36,
++              "EndLine": 36,
++              "StartColumn": 13,
++              "EndColumn": 60,
++              "Class": "XOProject.Controller.PortfolioController/<Post>d__6",
++              "Method": "MoveNext",
++              "MethodFullName": "System.Void XOProject.Controller.PortfolioController/<Post>d__6::MoveNext()",
++              "Instruction": "IL_00b7: ldarg "
++            }
++          ]
++        },
++        "XOProject\\Controller\\ShareController.cs": {
++          "Instructions": [
++            {
++              "Id": 118,
++              "StartLine": 11,
++              "EndLine": 11,
++              "StartColumn": 52,
++              "EndColumn": 56,
++              "Class": "XOProject.Controller.ShareController",
++              "Method": "get__shareRepository",
++              "MethodFullName": "XOProject.IShareRepository XOProject.Controller.ShareController::get__shareRepository()",
++              "Instruction": "IL_0000: ldarg "
++            },
++            {
++              "Id": 119,
++              "StartLine": 11,
++              "EndLine": 11,
++              "StartColumn": 57,
++              "EndColumn": 61,
++              "Class": "XOProject.Controller.ShareController",
++              "Method": "set__shareRepository",
++              "MethodFullName": "System.Void XOProject.Controller.ShareController::set__shareRepository(XOProject.IShareRepository)",
++              "Instruction": "IL_0000: ldarg "
++            },
++            {
++              "Id": 120,
++              "StartLine": 13,
++              "EndLine": 13,
++              "StartColumn": 9,
++              "EndColumn": 65,
++              "Class": "XOProject.Controller.ShareController",
++              "Method": ".ctor",
++              "MethodFullName": "System.Void XOProject.Controller.ShareController::.ctor(XOProject.IShareRepository)",
++              "Instruction": "IL_0000: ldarg "
++            },
++            {
++              "Id": 121,
++              "StartLine": 15,
++              "EndLine": 15,
++              "StartColumn": 13,
++              "EndColumn": 48,
++              "Class": "XOProject.Controller.ShareController",
++              "Method": ".ctor",
++              "MethodFullName": "System.Void XOProject.Controller.ShareController::.ctor(XOProject.IShareRepository)",
++              "Instruction": "IL_0008: ldarg "
++            },
++            {
++              "Id": 122,
++              "StartLine": 21,
++              "EndLine": 21,
++              "StartColumn": 13,
++              "EndColumn": 69,
++              "Class": "XOProject.Controller.ShareController/<Get>d__5",
++              "Method": "MoveNext",
++              "MethodFullName": "System.Void XOProject.Controller.ShareController/<Get>d__5::MoveNext()",
++              "Instruction": "IL_000f: ldarg "
++            },
++            {
++              "Id": 123,
++              "StartLine": 22,
++              "EndLine": 22,
++              "StartColumn": 13,
++              "EndColumn": 31,
++              "Class": "XOProject.Controller.ShareController/<Get>d__5",
++              "Method": "MoveNext",
++              "MethodFullName": "System.Void XOProject.Controller.ShareController/<Get>d__5::MoveNext()",
++              "Instruction": "IL_0094: ldarg "
++            },
++            {
++              "Id": 124,
++              "StartLine": 21,
++              "EndLine": 21,
++              "StartColumn": 13,
++              "EndColumn": 69,
++              "Class": "XOProject.Controller.ShareController/<Get>d__5",
++              "Method": "MoveNext",
++              "MethodFullName": "System.Void XOProject.Controller.ShareController/<Get>d__5::MoveNext()",
++              "Instruction": "IL_000f: ldarg "
++            },
++            {
++              "Id": 125,
++              "StartLine": 22,
++              "EndLine": 22,
++              "StartColumn": 13,
++              "EndColumn": 31,
++              "Class": "XOProject.Controller.ShareController/<Get>d__5",
++              "Method": "MoveNext",
++              "MethodFullName": "System.Void XOProject.Controller.ShareController/<Get>d__5::MoveNext()",
++              "Instruction": "IL_0094: ldarg "
++            },
++            {
++              "Id": 126,
++              "StartLine": 29,
++              "EndLine": 29,
++              "StartColumn": 41,
++              "EndColumn": 52,
++              "Class": "XOProject.Controller.ShareController/<>c",
++              "Method": "<GetLatestPrice>b__6_0",
++              "MethodFullName": "System.DateTime XOProject.Controller.ShareController/<>c::<GetLatestPrice>b__6_0(XOProject.HourlyShareRate)",
++              "Instruction": "IL_0000: ldarg x"
++            },
++            {
++              "Id": 127,
++              "StartLine": 29,
++              "EndLine": 29,
++              "StartColumn": 41,
++              "EndColumn": 52,
++              "Class": "XOProject.Controller.ShareController/<>c",
++              "Method": "<GetLatestPrice>b__6_0",
++              "MethodFullName": "System.DateTime XOProject.Controller.ShareController/<>c::<GetLatestPrice>b__6_0(XOProject.HourlyShareRate)",
++              "Instruction": "IL_0000: ldarg x"
++            },
++            {
++              "Id": 128,
++              "StartLine": 28,
++              "EndLine": 31,
++              "StartColumn": 13,
++              "EndColumn": 24,
++              "Class": "XOProject.Controller.ShareController/<GetLatestPrice>d__6",
++              "Method": "MoveNext",
++              "MethodFullName": "System.Void XOProject.Controller.ShareController/<GetLatestPrice>d__6::MoveNext()",
++              "Instruction": "IL_000f: ldarg "
++            },
++            {
++              "Id": 129,
++              "StartLine": 33,
++              "EndLine": 33,
++              "StartColumn": 13,
++              "EndColumn": 29,
++              "Class": "XOProject.Controller.ShareController/<GetLatestPrice>d__6",
++              "Method": "MoveNext",
++              "MethodFullName": "System.Void XOProject.Controller.ShareController/<GetLatestPrice>d__6::MoveNext()",
++              "Instruction": "IL_00da: ldarg "
++            },
++            {
++              "Id": 130,
++              "StartLine": 28,
++              "EndLine": 31,
++              "StartColumn": 13,
++              "EndColumn": 24,
++              "Class": "XOProject.Controller.ShareController/<GetLatestPrice>d__6",
++              "Method": "MoveNext",
++              "MethodFullName": "System.Void XOProject.Controller.ShareController/<GetLatestPrice>d__6::MoveNext()",
++              "Instruction": "IL_000f: ldarg "
++            },
++            {
++              "Id": 131,
++              "StartLine": 33,
++              "EndLine": 33,
++              "StartColumn": 13,
++              "EndColumn": 29,
++              "Class": "XOProject.Controller.ShareController/<GetLatestPrice>d__6",
++              "Method": "MoveNext",
++              "MethodFullName": "System.Void XOProject.Controller.ShareController/<GetLatestPrice>d__6::MoveNext()",
++              "Instruction": "IL_00da: ldarg "
++            },
++            {
++              "Id": 132,
++              "StartLine": 39,
++              "EndLine": 39,
++              "StartColumn": 13,
++              "EndColumn": 37,
++              "Class": "XOProject.Controller.ShareController/<Post>d__7",
++              "Method": "MoveNext",
++              "MethodFullName": "System.Void XOProject.Controller.ShareController/<Post>d__7::MoveNext()",
++              "Instruction": "IL_0012: ldarg "
++            },
++            {
++              "Id": 133,
++              "StartLine": 41,
++              "EndLine": 41,
++              "StartColumn": 17,
++              "EndColumn": 47,
++              "Class": "XOProject.Controller.ShareController/<Post>d__7",
++              "Method": "MoveNext",
++              "MethodFullName": "System.Void XOProject.Controller.ShareController/<Post>d__7::MoveNext()",
++              "Instruction": "IL_002a: ldarg "
++            },
++            {
++              "Id": 134,
++              "StartLine": 44,
++              "EndLine": 44,
++              "StartColumn": 13,
++              "EndColumn": 55,
++              "Class": "XOProject.Controller.ShareController/<Post>d__7",
++              "Method": "MoveNext",
++              "MethodFullName": "System.Void XOProject.Controller.ShareController/<Post>d__7::MoveNext()",
++              "Instruction": "IL_0046: ldarg "
++            },
++            {
++              "Id": 135,
++              "StartLine": 46,
++              "EndLine": 46,
++              "StartColumn": 13,
++              "EndColumn": 56,
++              "Class": "XOProject.Controller.ShareController/<Post>d__7",
++              "Method": "MoveNext",
++              "MethodFullName": "System.Void XOProject.Controller.ShareController/<Post>d__7::MoveNext()",
++              "Instruction": "IL_00b7: ldarg "
++            },
++            {
++              "Id": 136,
++              "StartLine": 39,
++              "EndLine": 39,
++              "StartColumn": 13,
++              "EndColumn": 37,
++              "Class": "XOProject.Controller.ShareController/<Post>d__7",
++              "Method": "MoveNext",
++              "MethodFullName": "System.Void XOProject.Controller.ShareController/<Post>d__7::MoveNext()",
++              "Instruction": "IL_0012: ldarg "
++            },
++            {
++              "Id": 137,
++              "StartLine": 41,
++              "EndLine": 41,
++              "StartColumn": 17,
++              "EndColumn": 47,
++              "Class": "XOProject.Controller.ShareController/<Post>d__7",
++              "Method": "MoveNext",
++              "MethodFullName": "System.Void XOProject.Controller.ShareController/<Post>d__7::MoveNext()",
++              "Instruction": "IL_002a: ldarg "
++            },
++            {
++              "Id": 138,
++              "StartLine": 44,
++              "EndLine": 44,
++              "StartColumn": 13,
++              "EndColumn": 55,
++              "Class": "XOProject.Controller.ShareController/<Post>d__7",
++              "Method": "MoveNext",
++              "MethodFullName": "System.Void XOProject.Controller.ShareController/<Post>d__7::MoveNext()",
++              "Instruction": "IL_0046: ldarg "
++            },
++            {
++              "Id": 139,
++              "StartLine": 46,
++              "EndLine": 46,
++              "StartColumn": 13,
++              "EndColumn": 56,
++              "Class": "XOProject.Controller.ShareController/<Post>d__7",
++              "Method": "MoveNext",
++              "MethodFullName": "System.Void XOProject.Controller.ShareController/<Post>d__7::MoveNext()",
++              "Instruction": "IL_00b7: ldarg "
++            }
++          ]
++        },
++        "XOProject\\Controller\\TradeController.cs": {
++          "Instructions": [
++            {
++              "Id": 140,
++              "StartLine": 15,
++              "EndLine": 15,
++              "StartColumn": 53,
++              "EndColumn": 57,
++              "Class": "XOProject.Controller.TradeController",
++              "Method": "get__shareRepository",
++              "MethodFullName": "XOProject.IShareRepository XOProject.Controller.TradeController::get__shareRepository()",
++              "Instruction": "IL_0000: ldarg "
++            },
++            {
++              "Id": 141,
++              "StartLine": 15,
++              "EndLine": 15,
++              "StartColumn": 58,
++              "EndColumn": 62,
++              "Class": "XOProject.Controller.TradeController",
++              "Method": "set__shareRepository",
++              "MethodFullName": "System.Void XOProject.Controller.TradeController::set__shareRepository(XOProject.IShareRepository)",
++              "Instruction": "IL_0000: ldarg "
++            },
++            {
++              "Id": 142,
++              "StartLine": 16,
++              "EndLine": 16,
++              "StartColumn": 53,
++              "EndColumn": 57,
++              "Class": "XOProject.Controller.TradeController",
++              "Method": "get__tradeRepository",
++              "MethodFullName": "XOProject.ITradeRepository XOProject.Controller.TradeController::get__tradeRepository()",
++              "Instruction": "IL_0000: ldarg "
++            },
++            {
++              "Id": 143,
++              "StartLine": 16,
++              "EndLine": 16,
++              "StartColumn": 58,
++              "EndColumn": 62,
++              "Class": "XOProject.Controller.TradeController",
++              "Method": "set__tradeRepository",
++              "MethodFullName": "System.Void XOProject.Controller.TradeController::set__tradeRepository(XOProject.ITradeRepository)",
++              "Instruction": "IL_0000: ldarg "
++            },
++            {
++              "Id": 144,
++              "StartLine": 17,
++              "EndLine": 17,
++              "StartColumn": 61,
++              "EndColumn": 65,
++              "Class": "XOProject.Controller.TradeController",
++              "Method": "get__portfolioRepository",
++              "MethodFullName": "XOProject.IPortfolioRepository XOProject.Controller.TradeController::get__portfolioRepository()",
++              "Instruction": "IL_0000: ldarg "
++            },
++            {
++              "Id": 145,
++              "StartLine": 17,
++              "EndLine": 17,
++              "StartColumn": 66,
++              "EndColumn": 70,
++              "Class": "XOProject.Controller.TradeController",
++              "Method": "set__portfolioRepository",
++              "MethodFullName": "System.Void XOProject.Controller.TradeController::set__portfolioRepository(XOProject.IPortfolioRepository)",
++              "Instruction": "IL_0000: ldarg "
++            },
++            {
++              "Id": 146,
++              "StartLine": 19,
++              "EndLine": 19,
++              "StartColumn": 9,
++              "EndColumn": 141,
++              "Class": "XOProject.Controller.TradeController",
++              "Method": ".ctor",
++              "MethodFullName": "System.Void XOProject.Controller.TradeController::.ctor(XOProject.IShareRepository,XOProject.ITradeRepository,XOProject.IPortfolioRepository)",
++              "Instruction": "IL_0000: ldarg "
++            },
++            {
++              "Id": 147,
++              "StartLine": 21,
++              "EndLine": 21,
++              "StartColumn": 13,
++              "EndColumn": 48,
++              "Class": "XOProject.Controller.TradeController",
++              "Method": ".ctor",
++              "MethodFullName": "System.Void XOProject.Controller.TradeController::.ctor(XOProject.IShareRepository,XOProject.ITradeRepository,XOProject.IPortfolioRepository)",
++              "Instruction": "IL_0008: ldarg "
++            },
++            {
++              "Id": 148,
++              "StartLine": 22,
++              "EndLine": 22,
++              "StartColumn": 13,
++              "EndColumn": 48,
++              "Class": "XOProject.Controller.TradeController",
++              "Method": ".ctor",
++              "MethodFullName": "System.Void XOProject.Controller.TradeController::.ctor(XOProject.IShareRepository,XOProject.ITradeRepository,XOProject.IPortfolioRepository)",
++              "Instruction": "IL_0010: ldarg "
++            },
++            {
++              "Id": 149,
++              "StartLine": 23,
++              "EndLine": 23,
++              "StartColumn": 13,
++              "EndColumn": 56,
++              "Class": "XOProject.Controller.TradeController",
++              "Method": ".ctor",
++              "MethodFullName": "System.Void XOProject.Controller.TradeController::.ctor(XOProject.IShareRepository,XOProject.ITradeRepository,XOProject.IPortfolioRepository)",
++              "Instruction": "IL_0018: ldarg "
++            },
++            {
++              "Id": 150,
++              "StartLine": 29,
++              "EndLine": 29,
++              "StartColumn": 13,
++              "EndColumn": 76,
++              "Class": "XOProject.Controller.TradeController/<GetAllTradings>d__13",
++              "Method": "MoveNext",
++              "MethodFullName": "System.Void XOProject.Controller.TradeController/<GetAllTradings>d__13::MoveNext()",
++              "Instruction": "IL_000f: ldarg "
++            },
++            {
++              "Id": 151,
++              "StartLine": 30,
++              "EndLine": 30,
++              "StartColumn": 13,
++              "EndColumn": 30,
++              "Class": "XOProject.Controller.TradeController/<GetAllTradings>d__13",
++              "Method": "MoveNext",
++              "MethodFullName": "System.Void XOProject.Controller.TradeController/<GetAllTradings>d__13::MoveNext()",
++              "Instruction": "IL_0094: ldarg "
++            },
++            {
++              "Id": 152,
++              "StartLine": 29,
++              "EndLine": 29,
++              "StartColumn": 13,
++              "EndColumn": 76,
++              "Class": "XOProject.Controller.TradeController/<GetAllTradings>d__13",
++              "Method": "MoveNext",
++              "MethodFullName": "System.Void XOProject.Controller.TradeController/<GetAllTradings>d__13::MoveNext()",
++              "Instruction": "IL_000f: ldarg "
++            },
++            {
++              "Id": 153,
++              "StartLine": 30,
++              "EndLine": 30,
++              "StartColumn": 13,
++              "EndColumn": 30,
++              "Class": "XOProject.Controller.TradeController/<GetAllTradings>d__13",
++              "Method": "MoveNext",
++              "MethodFullName": "System.Void XOProject.Controller.TradeController/<GetAllTradings>d__13::MoveNext()",
++              "Instruction": "IL_0094: ldarg "
++            },
++            {
++              "Id": 154,
++              "StartLine": 53,
++              "EndLine": 53,
++              "StartColumn": 43,
++              "EndColumn": 55,
++              "Class": "XOProject.Controller.TradeController/<>c",
++              "Method": "<GetAnalysis>b__14_2",
++              "MethodFullName": "System.Int32 XOProject.Controller.TradeController/<>c::<GetAnalysis>b__14_2(XOProject.Trade)",
++              "Instruction": "IL_0000: ldarg x"
++            },
++            {
++              "Id": 155,
++              "StartLine": 53,
++              "EndLine": 53,
++              "StartColumn": 43,
++              "EndColumn": 55,
++              "Class": "XOProject.Controller.TradeController/<>c",
++              "Method": "<GetAnalysis>b__14_2",
++              "MethodFullName": "System.Int32 XOProject.Controller.TradeController/<>c::<GetAnalysis>b__14_2(XOProject.Trade)",
++              "Instruction": "IL_0000: ldarg x"
++            },
++            {
++              "Id": 156,
++              "StartLine": 54,
++              "EndLine": 54,
++              "StartColumn": 43,
++              "EndColumn": 55,
++              "Class": "XOProject.Controller.TradeController/<>c",
++              "Method": "<GetAnalysis>b__14_3",
++              "MethodFullName": "System.Int32 XOProject.Controller.TradeController/<>c::<GetAnalysis>b__14_3(XOProject.Trade)",
++              "Instruction": "IL_0000: ldarg x"
++            },
++            {
++              "Id": 157,
++              "StartLine": 54,
++              "EndLine": 54,
++              "StartColumn": 43,
++              "EndColumn": 55,
++              "Class": "XOProject.Controller.TradeController/<>c",
++              "Method": "<GetAnalysis>b__14_3",
++              "MethodFullName": "System.Int32 XOProject.Controller.TradeController/<>c::<GetAnalysis>b__14_3(XOProject.Trade)",
++              "Instruction": "IL_0000: ldarg x"
++            },
++            {
++              "Id": 158,
++              "StartLine": 55,
++              "EndLine": 55,
++              "StartColumn": 56,
++              "EndColumn": 68,
++              "Class": "XOProject.Controller.TradeController/<>c",
++              "Method": "<GetAnalysis>b__14_4",
++              "MethodFullName": "System.Int32 XOProject.Controller.TradeController/<>c::<GetAnalysis>b__14_4(XOProject.Trade)",
++              "Instruction": "IL_0000: ldarg x"
++            },
++            {
++              "Id": 159,
++              "StartLine": 55,
++              "EndLine": 55,
++              "StartColumn": 56,
++              "EndColumn": 68,
++              "Class": "XOProject.Controller.TradeController/<>c",
++              "Method": "<GetAnalysis>b__14_4",
++              "MethodFullName": "System.Int32 XOProject.Controller.TradeController/<>c::<GetAnalysis>b__14_4(XOProject.Trade)",
++              "Instruction": "IL_0000: ldarg x"
++            },
++            {
++              "Id": 160,
++              "StartLine": 56,
++              "EndLine": 56,
++              "StartColumn": 39,
++              "EndColumn": 51,
++              "Class": "XOProject.Controller.TradeController/<>c",
++              "Method": "<GetAnalysis>b__14_5",
++              "MethodFullName": "System.Int32 XOProject.Controller.TradeController/<>c::<GetAnalysis>b__14_5(XOProject.Trade)",
++              "Instruction": "IL_0000: ldarg x"
++            },
++            {
++              "Id": 161,
++              "StartLine": 56,
++              "EndLine": 56,
++              "StartColumn": 39,
++              "EndColumn": 51,
++              "Class": "XOProject.Controller.TradeController/<>c",
++              "Method": "<GetAnalysis>b__14_5",
++              "MethodFullName": "System.Int32 XOProject.Controller.TradeController/<>c::<GetAnalysis>b__14_5(XOProject.Trade)",
++              "Instruction": "IL_0000: ldarg x"
++            },
++            {
++              "Id": 162,
++              "StartLine": 57,
++              "EndLine": 57,
++              "StartColumn": 45,
++              "EndColumn": 53,
++              "Class": "XOProject.Controller.TradeController/<>c",
++              "Method": "<GetAnalysis>b__14_6",
++              "MethodFullName": "System.String XOProject.Controller.TradeController/<>c::<GetAnalysis>b__14_6(XOProject.Trade)",
++              "Instruction": "IL_0000: ldarg x"
++            },
++            {
++              "Id": 163,
++              "StartLine": 57,
++              "EndLine": 57,
++              "StartColumn": 45,
++              "EndColumn": 53,
++              "Class": "XOProject.Controller.TradeController/<>c",
++              "Method": "<GetAnalysis>b__14_6",
++              "MethodFullName": "System.String XOProject.Controller.TradeController/<>c::<GetAnalysis>b__14_6(XOProject.Trade)",
++              "Instruction": "IL_0000: ldarg x"
++            },
++            {
++              "Id": 164,
++              "StartLine": 44,
++              "EndLine": 44,
++              "StartColumn": 13,
++              "EndColumn": 50,
++              "Class": "XOProject.Controller.TradeController/<GetAnalysis>d__14",
++              "Method": "MoveNext",
++              "MethodFullName": "System.Void XOProject.Controller.TradeController/<GetAnalysis>d__14::MoveNext()",
++              "Instruction": "IL_0024: ldarg "
++            },
++            {
++              "Id": 165,
++              "StartLine": 47,
++              "EndLine": 47,
++              "StartColumn": 13,
++              "EndColumn": 116,
++              "Class": "XOProject.Controller.TradeController/<GetAnalysis>d__14",
++              "Method": "MoveNext",
++              "MethodFullName": "System.Void XOProject.Controller.TradeController/<GetAnalysis>d__14::MoveNext()",
++              "Instruction": "IL_002f: ldarg "
++            },
++            {
++              "Id": 166,
++              "StartLine": 49,
++              "EndLine": 49,
++              "StartColumn": 13,
++              "EndColumn": 20,
++              "Class": "XOProject.Controller.TradeController/<GetAnalysis>d__14",
++              "Method": "MoveNext",
++              "MethodFullName": "System.Void XOProject.Controller.TradeController/<GetAnalysis>d__14::MoveNext()",
++              "Instruction": "IL_0102: nop"
++            },
++            {
++              "Id": 167,
++              "StartLine": 49,
++              "EndLine": 49,
++              "StartColumn": 32,
++              "EndColumn": 44,
++              "Class": "XOProject.Controller.TradeController/<GetAnalysis>d__14",
++              "Method": "MoveNext",
++              "MethodFullName": "System.Void XOProject.Controller.TradeController/<GetAnalysis>d__14::MoveNext()",
++              "Instruction": "IL_0103: ldarg "
++            },
++            {
++              "Id": 168,
++              "StartLine": 49,
++              "EndLine": 49,
++              "StartColumn": 22,
++              "EndColumn": 28,
++              "Class": "XOProject.Controller.TradeController/<GetAnalysis>d__14",
++              "Method": "MoveNext",
++              "MethodFullName": "System.Void XOProject.Controller.TradeController/<GetAnalysis>d__14::MoveNext()",
++              "Instruction": "IL_0119: ldarg "
++            },
++            {
++              "Id": 169,
++              "StartLine": 51,
++              "EndLine": 58,
++              "StartColumn": 17,
++              "EndColumn": 19,
++              "Class": "XOProject.Controller.TradeController/<GetAnalysis>d__14",
++              "Method": "MoveNext",
++              "MethodFullName": "System.Void XOProject.Controller.TradeController/<GetAnalysis>d__14::MoveNext()",
++              "Instruction": "IL_012b: ldarg "
++            },
++            {
++              "Id": 170,
++              "StartLine": 60,
++              "EndLine": 60,
++              "StartColumn": 17,
++              "EndColumn": 30,
++              "Class": "XOProject.Controller.TradeController/<GetAnalysis>d__14",
++              "Method": "MoveNext",
++              "MethodFullName": "System.Void XOProject.Controller.TradeController/<GetAnalysis>d__14::MoveNext()",
++              "Instruction": "IL_0244: ldarg "
++            },
++            {
++              "Id": 171,
++              "StartLine": 49,
++              "EndLine": 49,
++              "StartColumn": 29,
++              "EndColumn": 31,
++              "Class": "XOProject.Controller.TradeController/<GetAnalysis>d__14",
++              "Method": "MoveNext",
++              "MethodFullName": "System.Void XOProject.Controller.TradeController/<GetAnalysis>d__14::MoveNext()",
++              "Instruction": "IL_0265: ldarg "
++            },
++            {
++              "Id": 172,
++              "StartLine": 63,
++              "EndLine": 63,
++              "StartColumn": 13,
++              "EndColumn": 29,
++              "Class": "XOProject.Controller.TradeController/<GetAnalysis>d__14",
++              "Method": "MoveNext",
++              "MethodFullName": "System.Void XOProject.Controller.TradeController/<GetAnalysis>d__14::MoveNext()",
++              "Instruction": "IL_0297: ldarg "
++            },
++            {
++              "Id": 173,
++              "StartLine": 44,
++              "EndLine": 44,
++              "StartColumn": 13,
++              "EndColumn": 50,
++              "Class": "XOProject.Controller.TradeController/<GetAnalysis>d__14",
++              "Method": "MoveNext",
++              "MethodFullName": "System.Void XOProject.Controller.TradeController/<GetAnalysis>d__14::MoveNext()",
++              "Instruction": "IL_0024: ldarg "
++            },
++            {
++              "Id": 174,
++              "StartLine": 47,
++              "EndLine": 47,
++              "StartColumn": 13,
++              "EndColumn": 116,
++              "Class": "XOProject.Controller.TradeController/<GetAnalysis>d__14",
++              "Method": "MoveNext",
++              "MethodFullName": "System.Void XOProject.Controller.TradeController/<GetAnalysis>d__14::MoveNext()",
++              "Instruction": "IL_002f: ldarg "
++            },
++            {
++              "Id": 175,
++              "StartLine": 49,
++              "EndLine": 49,
++              "StartColumn": 13,
++              "EndColumn": 20,
++              "Class": "XOProject.Controller.TradeController/<GetAnalysis>d__14",
++              "Method": "MoveNext",
++              "MethodFullName": "System.Void XOProject.Controller.TradeController/<GetAnalysis>d__14::MoveNext()",
++              "Instruction": "IL_0102: nop"
++            },
++            {
++              "Id": 176,
++              "StartLine": 49,
++              "EndLine": 49,
++              "StartColumn": 32,
++              "EndColumn": 44,
++              "Class": "XOProject.Controller.TradeController/<GetAnalysis>d__14",
++              "Method": "MoveNext",
++              "MethodFullName": "System.Void XOProject.Controller.TradeController/<GetAnalysis>d__14::MoveNext()",
++              "Instruction": "IL_0103: ldarg "
++            },
++            {
++              "Id": 177,
++              "StartLine": 49,
++              "EndLine": 49,
++              "StartColumn": 22,
++              "EndColumn": 28,
++              "Class": "XOProject.Controller.TradeController/<GetAnalysis>d__14",
++              "Method": "MoveNext",
++              "MethodFullName": "System.Void XOProject.Controller.TradeController/<GetAnalysis>d__14::MoveNext()",
++              "Instruction": "IL_0119: ldarg "
++            },
++            {
++              "Id": 178,
++              "StartLine": 51,
++              "EndLine": 58,
++              "StartColumn": 17,
++              "EndColumn": 19,
++              "Class": "XOProject.Controller.TradeController/<GetAnalysis>d__14",
++              "Method": "MoveNext",
++              "MethodFullName": "System.Void XOProject.Controller.TradeController/<GetAnalysis>d__14::MoveNext()",
++              "Instruction": "IL_012b: ldarg "
++            },
++            {
++              "Id": 179,
++              "StartLine": 60,
++              "EndLine": 60,
++              "StartColumn": 17,
++              "EndColumn": 30,
++              "Class": "XOProject.Controller.TradeController/<GetAnalysis>d__14",
++              "Method": "MoveNext",
++              "MethodFullName": "System.Void XOProject.Controller.TradeController/<GetAnalysis>d__14::MoveNext()",
++              "Instruction": "IL_0244: ldarg "
++            },
++            {
++              "Id": 180,
++              "StartLine": 49,
++              "EndLine": 49,
++              "StartColumn": 29,
++              "EndColumn": 31,
++              "Class": "XOProject.Controller.TradeController/<GetAnalysis>d__14",
++              "Method": "MoveNext",
++              "MethodFullName": "System.Void XOProject.Controller.TradeController/<GetAnalysis>d__14::MoveNext()",
++              "Instruction": "IL_0265: ldarg "
++            },
++            {
++              "Id": 181,
++              "StartLine": 63,
++              "EndLine": 63,
++              "StartColumn": 13,
++              "EndColumn": 29,
++              "Class": "XOProject.Controller.TradeController/<GetAnalysis>d__14",
++              "Method": "MoveNext",
++              "MethodFullName": "System.Void XOProject.Controller.TradeController/<GetAnalysis>d__14::MoveNext()",
++              "Instruction": "IL_0297: ldarg "
++            }
++          ]
++        },
++        "XOProject\\Exceptions\\HttpStatusCodeException.cs": {
++          "Instructions": [
++            {
++              "Id": 1,
++              "StartLine": 29,
++              "EndLine": 29,
++              "StartColumn": 51,
++              "EndColumn": 64,
++              "Class": "XOProject.HttpStatusCodeException",
++              "Method": ".ctor",
++              "MethodFullName": "System.Void XOProject.HttpStatusCodeException::.ctor(System.Int32)",
++              "Instruction": "IL_0000: ldarg "
++            },
++            {
++              "Id": 2,
++              "StartLine": 8,
++              "EndLine": 8,
++              "StartColumn": 9,
++              "EndColumn": 55,
++              "Class": "XOProject.HttpStatusCodeException",
++              "Method": ".ctor",
++              "MethodFullName": "System.Void XOProject.HttpStatusCodeException::.ctor(System.Int32)",
++              "Instruction": "IL_000b: ldarg "
++            },
++            {
++              "Id": 3,
++              "StartLine": 10,
++              "EndLine": 10,
++              "StartColumn": 13,
++              "EndColumn": 37,
++              "Class": "XOProject.HttpStatusCodeException",
++              "Method": ".ctor",
++              "MethodFullName": "System.Void XOProject.HttpStatusCodeException::.ctor(System.Int32)",
++              "Instruction": "IL_0013: ldarg "
++            },
++            {
++              "Id": 4,
++              "StartLine": 29,
++              "EndLine": 29,
++              "StartColumn": 51,
++              "EndColumn": 64,
++              "Class": "XOProject.HttpStatusCodeException",
++              "Method": ".ctor",
++              "MethodFullName": "System.Void XOProject.HttpStatusCodeException::.ctor(System.Int32,System.String)",
++              "Instruction": "IL_0000: ldarg "
++            },
++            {
++              "Id": 5,
++              "StartLine": 13,
++              "EndLine": 13,
++              "StartColumn": 74,
++              "EndColumn": 87,
++              "Class": "XOProject.HttpStatusCodeException",
++              "Method": ".ctor",
++              "MethodFullName": "System.Void XOProject.HttpStatusCodeException::.ctor(System.Int32,System.String)",
++              "Instruction": "IL_000b: ldarg "
++            },
++            {
++              "Id": 6,
++              "StartLine": 15,
++              "EndLine": 15,
++              "StartColumn": 13,
++              "EndColumn": 37,
++              "Class": "XOProject.HttpStatusCodeException",
++              "Method": ".ctor",
++              "MethodFullName": "System.Void XOProject.HttpStatusCodeException::.ctor(System.Int32,System.String)",
++              "Instruction": "IL_0014: ldarg "
++            },
++            {
++              "Id": 7,
++              "StartLine": 18,
++              "EndLine": 18,
++              "StartColumn": 75,
++              "EndColumn": 109,
++              "Class": "XOProject.HttpStatusCodeException",
++              "Method": ".ctor",
++              "MethodFullName": "System.Void XOProject.HttpStatusCodeException::.ctor(System.Int32,System.Exception)",
++              "Instruction": "IL_0000: ldarg "
++            },
++            {
++              "Id": 8,
++              "StartLine": 22,
++              "EndLine": 22,
++              "StartColumn": 79,
++              "EndColumn": 119,
++              "Class": "XOProject.HttpStatusCodeException",
++              "Method": ".ctor",
++              "MethodFullName": "System.Void XOProject.HttpStatusCodeException::.ctor(System.Int32,Newtonsoft.Json.Linq.JObject)",
++              "Instruction": "IL_0000: ldarg "
++            },
++            {
++              "Id": 9,
++              "StartLine": 24,
++              "EndLine": 24,
++              "StartColumn": 13,
++              "EndColumn": 47,
++              "Class": "XOProject.HttpStatusCodeException",
++              "Method": ".ctor",
++              "MethodFullName": "System.Void XOProject.HttpStatusCodeException::.ctor(System.Int32,Newtonsoft.Json.Linq.JObject)",
++              "Instruction": "IL_000f: ldarg "
++            },
++            {
++              "Id": 10,
++              "StartLine": 27,
++              "EndLine": 27,
++              "StartColumn": 33,
++              "EndColumn": 37,
++              "Class": "XOProject.HttpStatusCodeException",
++              "Method": "get_StatusCode",
++              "MethodFullName": "System.Int32 XOProject.HttpStatusCodeException::get_StatusCode()",
++              "Instruction": "IL_0000: ldarg "
++            },
++            {
++              "Id": 11,
++              "StartLine": 27,
++              "EndLine": 27,
++              "StartColumn": 38,
++              "EndColumn": 42,
++              "Class": "XOProject.HttpStatusCodeException",
++              "Method": "set_StatusCode",
++              "MethodFullName": "System.Void XOProject.HttpStatusCodeException::set_StatusCode(System.Int32)",
++              "Instruction": "IL_0000: ldarg "
++            },
++            {
++              "Id": 12,
++              "StartLine": 29,
++              "EndLine": 29,
++              "StartColumn": 37,
++              "EndColumn": 41,
++              "Class": "XOProject.HttpStatusCodeException",
++              "Method": "get_ContentType",
++              "MethodFullName": "System.String XOProject.HttpStatusCodeException::get_ContentType()",
++              "Instruction": "IL_0000: ldarg "
++            },
++            {
++              "Id": 13,
++              "StartLine": 29,
++              "EndLine": 29,
++              "StartColumn": 42,
++              "EndColumn": 46,
++              "Class": "XOProject.HttpStatusCodeException",
++              "Method": "set_ContentType",
++              "MethodFullName": "System.Void XOProject.HttpStatusCodeException::set_ContentType(System.String)",
++              "Instruction": "IL_0000: ldarg "
++            }
++          ]
++        },
++        "XOProject\\Exceptions\\HttpStatusCodeExceptionMiddleware.cs": {
++          "Instructions": [
++            {
++              "Id": 14,
++              "StartLine": 13,
++              "EndLine": 13,
++              "StartColumn": 9,
++              "EndColumn": 101,
++              "Class": "XOProject.HttpStatusCodeExceptionMiddleware",
++              "Method": ".ctor",
++              "MethodFullName": "System.Void XOProject.HttpStatusCodeExceptionMiddleware::.ctor(Microsoft.AspNetCore.Http.RequestDelegate,Microsoft.Extensions.Logging.ILoggerFactory)",
++              "Instruction": "IL_0000: ldarg "
++            },
++            {
++              "Id": 15,
++              "StartLine": 15,
++              "EndLine": 15,
++              "StartColumn": 13,
++              "EndColumn": 75,
++              "Class": "XOProject.HttpStatusCodeExceptionMiddleware",
++              "Method": ".ctor",
++              "MethodFullName": "System.Void XOProject.HttpStatusCodeExceptionMiddleware::.ctor(Microsoft.AspNetCore.Http.RequestDelegate,Microsoft.Extensions.Logging.ILoggerFactory)",
++              "Instruction": "IL_0008: ldarg "
++            },
++            {
++              "Id": 16,
++              "StartLine": 16,
++              "EndLine": 17,
++              "StartColumn": 13,
++              "EndColumn": 78,
++              "Class": "XOProject.HttpStatusCodeExceptionMiddleware",
++              "Method": ".ctor",
++              "MethodFullName": "System.Void XOProject.HttpStatusCodeExceptionMiddleware::.ctor(Microsoft.AspNetCore.Http.RequestDelegate,Microsoft.Extensions.Logging.ILoggerFactory)",
++              "Instruction": "IL_001e: ldarg "
++            },
++            {
++              "Id": 17,
++              "StartLine": 24,
++              "EndLine": 24,
++              "StartColumn": 17,
++              "EndColumn": 38,
++              "Class": "XOProject.HttpStatusCodeExceptionMiddleware/<Invoke>d__3",
++              "Method": "MoveNext",
++              "MethodFullName": "System.Void XOProject.HttpStatusCodeExceptionMiddleware/<Invoke>d__3::MoveNext()",
++              "Instruction": "IL_002a: ldarg "
++            },
++            {
++              "Id": 18,
++              "StartLine": 26,
++              "EndLine": 26,
++              "StartColumn": 13,
++              "EndColumn": 47,
++              "Class": "XOProject.HttpStatusCodeExceptionMiddleware/<Invoke>d__3",
++              "Method": "MoveNext",
++              "MethodFullName": "System.Void XOProject.HttpStatusCodeExceptionMiddleware/<Invoke>d__3::MoveNext()",
++              "Instruction": "IL_009d: stloc V_3"
++            },
++            {
++              "Id": 19,
++              "StartLine": 28,
++              "EndLine": 28,
++              "StartColumn": 17,
++              "EndColumn": 49,
++              "Class": "XOProject.HttpStatusCodeExceptionMiddleware/<Invoke>d__3",
++              "Method": "MoveNext",
++              "MethodFullName": "System.Void XOProject.HttpStatusCodeExceptionMiddleware/<Invoke>d__3::MoveNext()",
++              "Instruction": "IL_00d2: ldarg "
++            },
++            {
++              "Id": 20,
++              "StartLine": 30,
++              "EndLine": 31,
++              "StartColumn": 21,
++              "EndColumn": 116,
++              "Class": "XOProject.HttpStatusCodeExceptionMiddleware/<Invoke>d__3",
++              "Method": "MoveNext",
++              "MethodFullName": "System.Void XOProject.HttpStatusCodeExceptionMiddleware/<Invoke>d__3::MoveNext()",
++              "Instruction": "IL_00e9: ldarg "
++            },
++            {
++              "Id": 21,
++              "StartLine": 32,
++              "EndLine": 32,
++              "StartColumn": 21,
++              "EndColumn": 27,
++              "Class": "XOProject.HttpStatusCodeExceptionMiddleware/<Invoke>d__3",
++              "Method": "MoveNext",
++              "MethodFullName": "System.Void XOProject.HttpStatusCodeExceptionMiddleware/<Invoke>d__3::MoveNext()",
++              "Instruction": "IL_0104: ldarg "
++            },
++            {
++              "Id": 22,
++              "StartLine": 35,
++              "EndLine": 35,
++              "StartColumn": 17,
++              "EndColumn": 42,
++              "Class": "XOProject.HttpStatusCodeExceptionMiddleware/<Invoke>d__3",
++              "Method": "MoveNext",
++              "MethodFullName": "System.Void XOProject.HttpStatusCodeExceptionMiddleware/<Invoke>d__3::MoveNext()",
++              "Instruction": "IL_012a: ldarg "
++            },
++            {
++              "Id": 23,
++              "StartLine": 36,
++              "EndLine": 36,
++              "StartColumn": 17,
++              "EndColumn": 61,
++              "Class": "XOProject.HttpStatusCodeExceptionMiddleware/<Invoke>d__3",
++              "Method": "MoveNext",
++              "MethodFullName": "System.Void XOProject.HttpStatusCodeExceptionMiddleware/<Invoke>d__3::MoveNext()",
++              "Instruction": "IL_013b: ldarg "
++            },
++            {
++              "Id": 24,
++              "StartLine": 37,
++              "EndLine": 37,
++              "StartColumn": 17,
++              "EndColumn": 63,
++              "Class": "XOProject.HttpStatusCodeExceptionMiddleware/<Invoke>d__3",
++              "Method": "MoveNext",
++              "MethodFullName": "System.Void XOProject.HttpStatusCodeExceptionMiddleware/<Invoke>d__3::MoveNext()",
++              "Instruction": "IL_0157: ldarg "
++            },
++            {
++              "Id": 25,
++              "StartLine": 39,
++              "EndLine": 39,
++              "StartColumn": 17,
++              "EndColumn": 63,
++              "Class": "XOProject.HttpStatusCodeExceptionMiddleware/<Invoke>d__3",
++              "Method": "MoveNext",
++              "MethodFullName": "System.Void XOProject.HttpStatusCodeExceptionMiddleware/<Invoke>d__3::MoveNext()",
++              "Instruction": "IL_0173: ldarg "
++            },
++            {
++              "Id": 26,
++              "StartLine": 24,
++              "EndLine": 24,
++              "StartColumn": 17,
++              "EndColumn": 38,
++              "Class": "XOProject.HttpStatusCodeExceptionMiddleware/<Invoke>d__3",
++              "Method": "MoveNext",
++              "MethodFullName": "System.Void XOProject.HttpStatusCodeExceptionMiddleware/<Invoke>d__3::MoveNext()",
++              "Instruction": "IL_002a: ldarg "
++            },
++            {
++              "Id": 27,
++              "StartLine": 26,
++              "EndLine": 26,
++              "StartColumn": 13,
++              "EndColumn": 47,
++              "Class": "XOProject.HttpStatusCodeExceptionMiddleware/<Invoke>d__3",
++              "Method": "MoveNext",
++              "MethodFullName": "System.Void XOProject.HttpStatusCodeExceptionMiddleware/<Invoke>d__3::MoveNext()",
++              "Instruction": "IL_009d: stloc V_3"
++            },
++            {
++              "Id": 28,
++              "StartLine": 28,
++              "EndLine": 28,
++              "StartColumn": 17,
++              "EndColumn": 49,
++              "Class": "XOProject.HttpStatusCodeExceptionMiddleware/<Invoke>d__3",
++              "Method": "MoveNext",
++              "MethodFullName": "System.Void XOProject.HttpStatusCodeExceptionMiddleware/<Invoke>d__3::MoveNext()",
++              "Instruction": "IL_00d2: ldarg "
++            },
++            {
++              "Id": 29,
++              "StartLine": 30,
++              "EndLine": 31,
++              "StartColumn": 21,
++              "EndColumn": 116,
++              "Class": "XOProject.HttpStatusCodeExceptionMiddleware/<Invoke>d__3",
++              "Method": "MoveNext",
++              "MethodFullName": "System.Void XOProject.HttpStatusCodeExceptionMiddleware/<Invoke>d__3::MoveNext()",
++              "Instruction": "IL_00e9: ldarg "
++            },
++            {
++              "Id": 30,
++              "StartLine": 32,
++              "EndLine": 32,
++              "StartColumn": 21,
++              "EndColumn": 27,
++              "Class": "XOProject.HttpStatusCodeExceptionMiddleware/<Invoke>d__3",
++              "Method": "MoveNext",
++              "MethodFullName": "System.Void XOProject.HttpStatusCodeExceptionMiddleware/<Invoke>d__3::MoveNext()",
++              "Instruction": "IL_0104: ldarg "
++            },
++            {
++              "Id": 31,
++              "StartLine": 35,
++              "EndLine": 35,
++              "StartColumn": 17,
++              "EndColumn": 42,
++              "Class": "XOProject.HttpStatusCodeExceptionMiddleware/<Invoke>d__3",
++              "Method": "MoveNext",
++              "MethodFullName": "System.Void XOProject.HttpStatusCodeExceptionMiddleware/<Invoke>d__3::MoveNext()",
++              "Instruction": "IL_012a: ldarg "
++            },
++            {
++              "Id": 32,
++              "StartLine": 36,
++              "EndLine": 36,
++              "StartColumn": 17,
++              "EndColumn": 61,
++              "Class": "XOProject.HttpStatusCodeExceptionMiddleware/<Invoke>d__3",
++              "Method": "MoveNext",
++              "MethodFullName": "System.Void XOProject.HttpStatusCodeExceptionMiddleware/<Invoke>d__3::MoveNext()",
++              "Instruction": "IL_013b: ldarg "
++            },
++            {
++              "Id": 33,
++              "StartLine": 37,
++              "EndLine": 37,
++              "StartColumn": 17,
++              "EndColumn": 63,
++              "Class": "XOProject.HttpStatusCodeExceptionMiddleware/<Invoke>d__3",
++              "Method": "MoveNext",
++              "MethodFullName": "System.Void XOProject.HttpStatusCodeExceptionMiddleware/<Invoke>d__3::MoveNext()",
++              "Instruction": "IL_0157: ldarg "
++            },
++            {
++              "Id": 34,
++              "StartLine": 39,
++              "EndLine": 39,
++              "StartColumn": 17,
++              "EndColumn": 63,
++              "Class": "XOProject.HttpStatusCodeExceptionMiddleware/<Invoke>d__3",
++              "Method": "MoveNext",
++              "MethodFullName": "System.Void XOProject.HttpStatusCodeExceptionMiddleware/<Invoke>d__3::MoveNext()",
++              "Instruction": "IL_0173: ldarg "
++            }
++          ]
++        },
++        "XOProject\\Exceptions\\HttpStatusCodeExceptionMiddlewareExtensions.cs": {
++          "Instructions": [
++            {
++              "Id": 35,
++              "StartLine": 9,
++              "EndLine": 9,
++              "StartColumn": 13,
++              "EndColumn": 79,
++              "Class": "XOProject.HttpStatusCodeExceptionMiddlewareExtensions",
++              "Method": "UseHttpStatusCodeExceptionMiddleware",
++              "MethodFullName": "Microsoft.AspNetCore.Builder.IApplicationBuilder XOProject.HttpStatusCodeExceptionMiddlewareExtensions::UseHttpStatusCodeExceptionMiddleware(Microsoft.AspNetCore.Builder.IApplicationBuilder)",
++              "Instruction": "IL_0001: ldarg builder"
++            }
++          ]
++        },
++        "XOProject\\Model\\HourlyShareRate.cs": {
++          "Instructions": [
++            {
++              "Id": 36,
++              "StartLine": 8,
++              "EndLine": 8,
++              "StartColumn": 25,
++              "EndColumn": 29,
++              "Class": "XOProject.HourlyShareRate",
++              "Method": "get_Id",
++              "MethodFullName": "System.Int32 XOProject.HourlyShareRate::get_Id()",
++              "Instruction": "IL_0000: ldarg "
++            },
++            {
++              "Id": 37,
++              "StartLine": 8,
++              "EndLine": 8,
++              "StartColumn": 30,
++              "EndColumn": 34,
++              "Class": "XOProject.HourlyShareRate",
++              "Method": "set_Id",
++              "MethodFullName": "System.Void XOProject.HourlyShareRate::set_Id(System.Int32)",
++              "Instruction": "IL_0000: ldarg "
++            },
++            {
++              "Id": 38,
++              "StartLine": 11,
++              "EndLine": 11,
++              "StartColumn": 37,
++              "EndColumn": 41,
++              "Class": "XOProject.HourlyShareRate",
++              "Method": "get_TimeStamp",
++              "MethodFullName": "System.DateTime XOProject.HourlyShareRate::get_TimeStamp()",
++              "Instruction": "IL_0000: ldarg "
++            },
++            {
++              "Id": 39,
++              "StartLine": 11,
++              "EndLine": 11,
++              "StartColumn": 42,
++              "EndColumn": 46,
++              "Class": "XOProject.HourlyShareRate",
++              "Method": "set_TimeStamp",
++              "MethodFullName": "System.Void XOProject.HourlyShareRate::set_TimeStamp(System.DateTime)",
++              "Instruction": "IL_0000: ldarg "
++            },
++            {
++              "Id": 40,
++              "StartLine": 14,
++              "EndLine": 14,
++              "StartColumn": 32,
++              "EndColumn": 36,
++              "Class": "XOProject.HourlyShareRate",
++              "Method": "get_Symbol",
++              "MethodFullName": "System.String XOProject.HourlyShareRate::get_Symbol()",
++              "Instruction": "IL_0000: ldarg "
++            },
++            {
++              "Id": 41,
++              "StartLine": 14,
++              "EndLine": 14,
++              "StartColumn": 37,
++              "EndColumn": 41,
++              "Class": "XOProject.HourlyShareRate",
++              "Method": "set_Symbol",
++              "MethodFullName": "System.Void XOProject.HourlyShareRate::set_Symbol(System.String)",
++              "Instruction": "IL_0000: ldarg "
++            },
++            {
++              "Id": 42,
++              "StartLine": 17,
++              "EndLine": 17,
++              "StartColumn": 31,
++              "EndColumn": 35,
++              "Class": "XOProject.HourlyShareRate",
++              "Method": "get_Rate",
++              "MethodFullName": "System.Decimal XOProject.HourlyShareRate::get_Rate()",
++              "Instruction": "IL_0000: ldarg "
++            },
++            {
++              "Id": 43,
++              "StartLine": 17,
++              "EndLine": 17,
++              "StartColumn": 36,
++              "EndColumn": 40,
++              "Class": "XOProject.HourlyShareRate",
++              "Method": "set_Rate",
++              "MethodFullName": "System.Void XOProject.HourlyShareRate::set_Rate(System.Decimal)",
++              "Instruction": "IL_0000: ldarg "
++            }
++          ]
++        },
++        "XOProject\\Model\\Portfolio.cs": {
++          "Instructions": [
++            {
++              "Id": 44,
++              "StartLine": 8,
++              "EndLine": 8,
++              "StartColumn": 25,
++              "EndColumn": 29,
++              "Class": "XOProject.Portfolio",
++              "Method": "get_Id",
++              "MethodFullName": "System.Int32 XOProject.Portfolio::get_Id()",
++              "Instruction": "IL_0000: ldarg "
++            },
++            {
++              "Id": 45,
++              "StartLine": 8,
++              "EndLine": 8,
++              "StartColumn": 30,
++              "EndColumn": 34,
++              "Class": "XOProject.Portfolio",
++              "Method": "set_Id",
++              "MethodFullName": "System.Void XOProject.Portfolio::set_Id(System.Int32)",
++              "Instruction": "IL_0000: ldarg "
++            },
++            {
++              "Id": 46,
++              "StartLine": 11,
++              "EndLine": 11,
++              "StartColumn": 30,
++              "EndColumn": 34,
++              "Class": "XOProject.Portfolio",
++              "Method": "get_Name",
++              "MethodFullName": "System.String XOProject.Portfolio::get_Name()",
++              "Instruction": "IL_0000: ldarg "
++            },
++            {
++              "Id": 47,
++              "StartLine": 11,
++              "EndLine": 11,
++              "StartColumn": 35,
++              "EndColumn": 39,
++              "Class": "XOProject.Portfolio",
++              "Method": "set_Name",
++              "MethodFullName": "System.Void XOProject.Portfolio::set_Name(System.String)",
++              "Instruction": "IL_0000: ldarg "
++            },
++            {
++              "Id": 48,
++              "StartLine": 13,
++              "EndLine": 13,
++              "StartColumn": 36,
++              "EndColumn": 40,
++              "Class": "XOProject.Portfolio",
++              "Method": "get_Trade",
++              "MethodFullName": "System.Collections.Generic.List`1<XOProject.Trade> XOProject.Portfolio::get_Trade()",
++              "Instruction": "IL_0000: ldarg "
++            },
++            {
++              "Id": 49,
++              "StartLine": 13,
++              "EndLine": 13,
++              "StartColumn": 41,
++              "EndColumn": 45,
++              "Class": "XOProject.Portfolio",
++              "Method": "set_Trade",
++              "MethodFullName": "System.Void XOProject.Portfolio::set_Trade(System.Collections.Generic.List`1<XOProject.Trade>)",
++              "Instruction": "IL_0000: ldarg "
++            }
++          ]
++        },
++        "XOProject\\Model\\Trade.cs": {
++          "Instructions": [
++            {
++              "Id": 50,
++              "StartLine": 5,
++              "EndLine": 5,
++              "StartColumn": 25,
++              "EndColumn": 29,
++              "Class": "XOProject.Trade",
++              "Method": "get_Id",
++              "MethodFullName": "System.Int32 XOProject.Trade::get_Id()",
++              "Instruction": "IL_0000: ldarg "
++            },
++            {
++              "Id": 51,
++              "StartLine": 5,
++              "EndLine": 5,
++              "StartColumn": 30,
++              "EndColumn": 34,
++              "Class": "XOProject.Trade",
++              "Method": "set_Id",
++              "MethodFullName": "System.Void XOProject.Trade::set_Id(System.Int32)",
++              "Instruction": "IL_0000: ldarg "
++            },
++            {
++              "Id": 52,
++              "StartLine": 7,
++              "EndLine": 7,
++              "StartColumn": 32,
++              "EndColumn": 36,
++              "Class": "XOProject.Trade",
++              "Method": "get_Symbol",
++              "MethodFullName": "System.String XOProject.Trade::get_Symbol()",
++              "Instruction": "IL_0000: ldarg "
++            },
++            {
++              "Id": 53,
++              "StartLine": 7,
++              "EndLine": 7,
++              "StartColumn": 37,
++              "EndColumn": 41,
++              "Class": "XOProject.Trade",
++              "Method": "set_Symbol",
++              "MethodFullName": "System.Void XOProject.Trade::set_Symbol(System.String)",
++              "Instruction": "IL_0000: ldarg "
++            },
++            {
++              "Id": 54,
++              "StartLine": 9,
++              "EndLine": 9,
++              "StartColumn": 33,
++              "EndColumn": 37,
++              "Class": "XOProject.Trade",
++              "Method": "get_NoOfShares",
++              "MethodFullName": "System.Int32 XOProject.Trade::get_NoOfShares()",
++              "Instruction": "IL_0000: ldarg "
++            },
++            {
++              "Id": 55,
++              "StartLine": 9,
++              "EndLine": 9,
++              "StartColumn": 38,
++              "EndColumn": 42,
++              "Class": "XOProject.Trade",
++              "Method": "set_NoOfShares",
++              "MethodFullName": "System.Void XOProject.Trade::set_NoOfShares(System.Int32)",
++              "Instruction": "IL_0000: ldarg "
++            },
++            {
++              "Id": 56,
++              "StartLine": 11,
++              "EndLine": 11,
++              "StartColumn": 32,
++              "EndColumn": 36,
++              "Class": "XOProject.Trade",
++              "Method": "get_Price",
++              "MethodFullName": "System.Decimal XOProject.Trade::get_Price()",
++              "Instruction": "IL_0000: ldarg "
++            },
++            {
++              "Id": 57,
++              "StartLine": 11,
++              "EndLine": 11,
++              "StartColumn": 37,
++              "EndColumn": 41,
++              "Class": "XOProject.Trade",
++              "Method": "set_Price",
++              "MethodFullName": "System.Void XOProject.Trade::set_Price(System.Decimal)",
++              "Instruction": "IL_0000: ldarg "
++            },
++            {
++              "Id": 58,
++              "StartLine": 13,
++              "EndLine": 13,
++              "StartColumn": 34,
++              "EndColumn": 38,
++              "Class": "XOProject.Trade",
++              "Method": "get_PortfolioId",
++              "MethodFullName": "System.Int32 XOProject.Trade::get_PortfolioId()",
++              "Instruction": "IL_0000: ldarg "
++            },
++            {
++              "Id": 59,
++              "StartLine": 13,
++              "EndLine": 13,
++              "StartColumn": 39,
++              "EndColumn": 43,
++              "Class": "XOProject.Trade",
++              "Method": "set_PortfolioId",
++              "MethodFullName": "System.Void XOProject.Trade::set_PortfolioId(System.Int32)",
++              "Instruction": "IL_0000: ldarg "
++            },
++            {
++              "Id": 60,
++              "StartLine": 15,
++              "EndLine": 15,
++              "StartColumn": 32,
++              "EndColumn": 36,
++              "Class": "XOProject.Trade",
++              "Method": "get_Action",
++              "MethodFullName": "System.String XOProject.Trade::get_Action()",
++              "Instruction": "IL_0000: ldarg "
++            },
++            {
++              "Id": 61,
++              "StartLine": 15,
++              "EndLine": 15,
++              "StartColumn": 37,
++              "EndColumn": 41,
++              "Class": "XOProject.Trade",
++              "Method": "set_Action",
++              "MethodFullName": "System.Void XOProject.Trade::set_Action(System.String)",
++              "Instruction": "IL_0000: ldarg "
++            }
++          ]
++        },
++        "XOProject\\Model\\TradeAnalysis.cs": {
++          "Instructions": [
++            {
++              "Id": 62,
++              "StartLine": 10,
++              "EndLine": 10,
++              "StartColumn": 30,
++              "EndColumn": 34,
++              "Class": "XOProject.TradeAnalysis",
++              "Method": "get_Sum",
++              "MethodFullName": "System.Decimal XOProject.TradeAnalysis::get_Sum()",
++              "Instruction": "IL_0000: ldarg "
++            },
++            {
++              "Id": 63,
++              "StartLine": 10,
++              "EndLine": 10,
++              "StartColumn": 35,
++              "EndColumn": 39,
++              "Class": "XOProject.TradeAnalysis",
++              "Method": "set_Sum",
++              "MethodFullName": "System.Void XOProject.TradeAnalysis::set_Sum(System.Decimal)",
++              "Instruction": "IL_0000: ldarg "
++            },
++            {
++              "Id": 64,
++              "StartLine": 12,
++              "EndLine": 12,
++              "StartColumn": 34,
++              "EndColumn": 38,
++              "Class": "XOProject.TradeAnalysis",
++              "Method": "get_Average",
++              "MethodFullName": "System.Decimal XOProject.TradeAnalysis::get_Average()",
++              "Instruction": "IL_0000: ldarg "
++            },
++            {
++              "Id": 65,
++              "StartLine": 12,
++              "EndLine": 12,
++              "StartColumn": 39,
++              "EndColumn": 43,
++              "Class": "XOProject.TradeAnalysis",
++              "Method": "set_Average",
++              "MethodFullName": "System.Void XOProject.TradeAnalysis::set_Average(System.Decimal)",
++              "Instruction": "IL_0000: ldarg "
++            },
++            {
++              "Id": 66,
++              "StartLine": 14,
++              "EndLine": 14,
++              "StartColumn": 34,
++              "EndColumn": 38,
++              "Class": "XOProject.TradeAnalysis",
++              "Method": "get_Maximum",
++              "MethodFullName": "System.Decimal XOProject.TradeAnalysis::get_Maximum()",
++              "Instruction": "IL_0000: ldarg "
++            },
++            {
++              "Id": 67,
++              "StartLine": 14,
++              "EndLine": 14,
++              "StartColumn": 39,
++              "EndColumn": 43,
++              "Class": "XOProject.TradeAnalysis",
++              "Method": "set_Maximum",
++              "MethodFullName": "System.Void XOProject.TradeAnalysis::set_Maximum(System.Decimal)",
++              "Instruction": "IL_0000: ldarg "
++            },
++            {
++              "Id": 68,
++              "StartLine": 16,
++              "EndLine": 16,
++              "StartColumn": 34,
++              "EndColumn": 38,
++              "Class": "XOProject.TradeAnalysis",
++              "Method": "get_Minimum",
++              "MethodFullName": "System.Decimal XOProject.TradeAnalysis::get_Minimum()",
++              "Instruction": "IL_0000: ldarg "
++            },
++            {
++              "Id": 69,
++              "StartLine": 16,
++              "EndLine": 16,
++              "StartColumn": 39,
++              "EndColumn": 43,
++              "Class": "XOProject.TradeAnalysis",
++              "Method": "set_Minimum",
++              "MethodFullName": "System.Void XOProject.TradeAnalysis::set_Minimum(System.Decimal)",
++              "Instruction": "IL_0000: ldarg "
++            },
++            {
++              "Id": 70,
++              "StartLine": 18,
++              "EndLine": 18,
++              "StartColumn": 32,
++              "EndColumn": 36,
++              "Class": "XOProject.TradeAnalysis",
++              "Method": "get_Action",
++              "MethodFullName": "System.String XOProject.TradeAnalysis::get_Action()",
++              "Instruction": "IL_0000: ldarg "
++            },
++            {
++              "Id": 71,
++              "StartLine": 18,
++              "EndLine": 18,
++              "StartColumn": 37,
++              "EndColumn": 41,
++              "Class": "XOProject.TradeAnalysis",
++              "Method": "set_Action",
++              "MethodFullName": "System.Void XOProject.TradeAnalysis::set_Action(System.String)",
++              "Instruction": "IL_0000: ldarg "
++            }
++          ]
++        },
++        "XOProject\\Model\\TradeModel.cs": {
++          "Instructions": [
++            {
++              "Id": 72,
++              "StartLine": 8,
++              "EndLine": 8,
++              "StartColumn": 32,
++              "EndColumn": 36,
++              "Class": "XOProject.TradeModel",
++              "Method": "get_Symbol",
++              "MethodFullName": "System.String XOProject.TradeModel::get_Symbol()",
++              "Instruction": "IL_0000: ldarg "
++            },
++            {
++              "Id": 73,
++              "StartLine": 8,
++              "EndLine": 8,
++              "StartColumn": 37,
++              "EndColumn": 41,
++              "Class": "XOProject.TradeModel",
++              "Method": "set_Symbol",
++              "MethodFullName": "System.Void XOProject.TradeModel::set_Symbol(System.String)",
++              "Instruction": "IL_0000: ldarg "
++            },
++            {
++              "Id": 74,
++              "StartLine": 11,
++              "EndLine": 11,
++              "StartColumn": 33,
++              "EndColumn": 37,
++              "Class": "XOProject.TradeModel",
++              "Method": "get_NoOfShares",
++              "MethodFullName": "System.Int32 XOProject.TradeModel::get_NoOfShares()",
++              "Instruction": "IL_0000: ldarg "
++            },
++            {
++              "Id": 75,
++              "StartLine": 11,
++              "EndLine": 11,
++              "StartColumn": 38,
++              "EndColumn": 42,
++              "Class": "XOProject.TradeModel",
++              "Method": "set_NoOfShares",
++              "MethodFullName": "System.Void XOProject.TradeModel::set_NoOfShares(System.Int32)",
++              "Instruction": "IL_0000: ldarg "
++            },
++            {
++              "Id": 76,
++              "StartLine": 14,
++              "EndLine": 14,
++              "StartColumn": 34,
++              "EndColumn": 38,
++              "Class": "XOProject.TradeModel",
++              "Method": "get_PortfolioId",
++              "MethodFullName": "System.Int32 XOProject.TradeModel::get_PortfolioId()",
++              "Instruction": "IL_0000: ldarg "
++            },
++            {
++              "Id": 77,
++              "StartLine": 14,
++              "EndLine": 14,
++              "StartColumn": 39,
++              "EndColumn": 43,
++              "Class": "XOProject.TradeModel",
++              "Method": "set_PortfolioId",
++              "MethodFullName": "System.Void XOProject.TradeModel::set_PortfolioId(System.Int32)",
++              "Instruction": "IL_0000: ldarg "
++            },
++            {
++              "Id": 78,
++              "StartLine": 18,
++              "EndLine": 18,
++              "StartColumn": 32,
++              "EndColumn": 36,
++              "Class": "XOProject.TradeModel",
++              "Method": "get_Action",
++              "MethodFullName": "System.String XOProject.TradeModel::get_Action()",
++              "Instruction": "IL_0000: ldarg "
++            },
++            {
++              "Id": 79,
++              "StartLine": 18,
++              "EndLine": 18,
++              "StartColumn": 37,
++              "EndColumn": 41,
++              "Class": "XOProject.TradeModel",
++              "Method": "set_Action",
++              "MethodFullName": "System.Void XOProject.TradeModel::set_Action(System.String)",
++              "Instruction": "IL_0000: ldarg "
++            }
++          ]
++        },
++        "XOProject\\Repository\\GenericRepository.cs": {
++          "Instructions": [
++            {
++              "Id": 80,
++              "StartLine": 10,
++              "EndLine": 10,
++              "StartColumn": 48,
++              "EndColumn": 52,
++              "Class": "XOProject.GenericRepository`1",
++              "Method": "get__dbContext",
++              "MethodFullName": "XOProject.ExchangeContext XOProject.GenericRepository`1::get__dbContext()",
++              "Instruction": "IL_0000: ldarg "
++            },
++            {
++              "Id": 81,
++              "StartLine": 10,
++              "EndLine": 10,
++              "StartColumn": 53,
++              "EndColumn": 57,
++              "Class": "XOProject.GenericRepository`1",
++              "Method": "set__dbContext",
++              "MethodFullName": "System.Void XOProject.GenericRepository`1::set__dbContext(XOProject.ExchangeContext)",
++              "Instruction": "IL_0000: ldarg "
++            },
++            {
++              "Id": 82,
++              "StartLine": 19,
++              "EndLine": 19,
++              "StartColumn": 13,
++              "EndColumn": 54,
++              "Class": "XOProject.GenericRepository`1",
++              "Method": "Query",
++              "MethodFullName": "System.Linq.IQueryable`1<T> XOProject.GenericRepository`1::Query()",
++              "Instruction": "IL_0001: ldarg "
++            },
++            {
++              "Id": 83,
++              "StartLine": 14,
++              "EndLine": 14,
++              "StartColumn": 13,
++              "EndColumn": 54,
++              "Class": "XOProject.GenericRepository`1/<GetAsync>d__4",
++              "Method": "MoveNext",
++              "MethodFullName": "System.Void XOProject.GenericRepository`1/<GetAsync>d__4::MoveNext()",
++              "Instruction": "IL_000f: ldarg "
++            },
++            {
++              "Id": 84,
++              "StartLine": 14,
++              "EndLine": 14,
++              "StartColumn": 13,
++              "EndColumn": 54,
++              "Class": "XOProject.GenericRepository`1/<GetAsync>d__4",
++              "Method": "MoveNext",
++              "MethodFullName": "System.Void XOProject.GenericRepository`1/<GetAsync>d__4::MoveNext()",
++              "Instruction": "IL_000f: ldarg "
++            },
++            {
++              "Id": 85,
++              "StartLine": 24,
++              "EndLine": 24,
++              "StartColumn": 13,
++              "EndColumn": 45,
++              "Class": "XOProject.GenericRepository`1/<InsertAsync>d__6",
++              "Method": "MoveNext",
++              "MethodFullName": "System.Void XOProject.GenericRepository`1/<InsertAsync>d__6::MoveNext()",
++              "Instruction": "IL_000f: ldarg "
++            },
++            {
++              "Id": 86,
++              "StartLine": 25,
++              "EndLine": 25,
++              "StartColumn": 13,
++              "EndColumn": 49,
++              "Class": "XOProject.GenericRepository`1/<InsertAsync>d__6",
++              "Method": "MoveNext",
++              "MethodFullName": "System.Void XOProject.GenericRepository`1/<InsertAsync>d__6::MoveNext()",
++              "Instruction": "IL_002b: ldarg "
++            },
++            {
++              "Id": 87,
++              "StartLine": 24,
++              "EndLine": 24,
++              "StartColumn": 13,
++              "EndColumn": 45,
++              "Class": "XOProject.GenericRepository`1/<InsertAsync>d__6",
++              "Method": "MoveNext",
++              "MethodFullName": "System.Void XOProject.GenericRepository`1/<InsertAsync>d__6::MoveNext()",
++              "Instruction": "IL_000f: ldarg "
++            },
++            {
++              "Id": 88,
++              "StartLine": 25,
++              "EndLine": 25,
++              "StartColumn": 13,
++              "EndColumn": 49,
++              "Class": "XOProject.GenericRepository`1/<InsertAsync>d__6",
++              "Method": "MoveNext",
++              "MethodFullName": "System.Void XOProject.GenericRepository`1/<InsertAsync>d__6::MoveNext()",
++              "Instruction": "IL_002b: ldarg "
++            },
++            {
++              "Id": 89,
++              "StartLine": 30,
++              "EndLine": 30,
++              "StartColumn": 13,
++              "EndColumn": 67,
++              "Class": "XOProject.GenericRepository`1/<UpdateAsync>d__7",
++              "Method": "MoveNext",
++              "MethodFullName": "System.Void XOProject.GenericRepository`1/<UpdateAsync>d__7::MoveNext()",
++              "Instruction": "IL_000f: ldarg "
++            },
++            {
++              "Id": 90,
++              "StartLine": 31,
++              "EndLine": 31,
++              "StartColumn": 13,
++              "EndColumn": 49,
++              "Class": "XOProject.GenericRepository`1/<UpdateAsync>d__7",
++              "Method": "MoveNext",
++              "MethodFullName": "System.Void XOProject.GenericRepository`1/<UpdateAsync>d__7::MoveNext()",
++              "Instruction": "IL_002c: ldarg "
++            },
++            {
++              "Id": 91,
++              "StartLine": 30,
++              "EndLine": 30,
++              "StartColumn": 13,
++              "EndColumn": 67,
++              "Class": "XOProject.GenericRepository`1/<UpdateAsync>d__7",
++              "Method": "MoveNext",
++              "MethodFullName": "System.Void XOProject.GenericRepository`1/<UpdateAsync>d__7::MoveNext()",
++              "Instruction": "IL_000f: ldarg "
++            },
++            {
++              "Id": 92,
++              "StartLine": 31,
++              "EndLine": 31,
++              "StartColumn": 13,
++              "EndColumn": 49,
++              "Class": "XOProject.GenericRepository`1/<UpdateAsync>d__7",
++              "Method": "MoveNext",
++              "MethodFullName": "System.Void XOProject.GenericRepository`1/<UpdateAsync>d__7::MoveNext()",
++              "Instruction": "IL_002c: ldarg "
++            }
++          ]
++        },
++        "XOProject\\Repository\\PortfolioRepository.cs": {
++          "Instructions": [
++            {
++              "Id": 93,
++              "StartLine": 8,
++              "EndLine": 8,
++              "StartColumn": 9,
++              "EndColumn": 62,
++              "Class": "XOProject.PortfolioRepository",
++              "Method": ".ctor",
++              "MethodFullName": "System.Void XOProject.PortfolioRepository::.ctor(XOProject.ExchangeContext)",
++              "Instruction": "IL_0000: ldarg "
++            },
++            {
++              "Id": 94,
++              "StartLine": 10,
++              "EndLine": 10,
++              "StartColumn": 13,
++              "EndColumn": 36,
++              "Class": "XOProject.PortfolioRepository",
++              "Method": ".ctor",
++              "MethodFullName": "System.Void XOProject.PortfolioRepository::.ctor(XOProject.ExchangeContext)",
++              "Instruction": "IL_0008: ldarg "
++            },
++            {
++              "Id": 95,
++              "StartLine": 15,
++              "EndLine": 15,
++              "StartColumn": 13,
++              "EndColumn": 78,
++              "Class": "XOProject.PortfolioRepository",
++              "Method": "GetAll",
++              "MethodFullName": "System.Linq.IQueryable`1<XOProject.Portfolio> XOProject.PortfolioRepository::GetAll()",
++              "Instruction": "IL_0001: ldarg "
++            }
++          ]
++        },
++        "XOProject\\Repository\\ShareRepository.cs": {
++          "Instructions": [
++            {
++              "Id": 96,
++              "StartLine": 10,
++              "EndLine": 10,
++              "StartColumn": 9,
++              "EndColumn": 58,
++              "Class": "XOProject.ShareRepository",
++              "Method": ".ctor",
++              "MethodFullName": "System.Void XOProject.ShareRepository::.ctor(XOProject.ExchangeContext)",
++              "Instruction": "IL_0000: ldarg "
++            },
++            {
++              "Id": 97,
++              "StartLine": 12,
++              "EndLine": 12,
++              "StartColumn": 13,
++              "EndColumn": 36,
++              "Class": "XOProject.ShareRepository",
++              "Method": ".ctor",
++              "MethodFullName": "System.Void XOProject.ShareRepository::.ctor(XOProject.ExchangeContext)",
++              "Instruction": "IL_0008: ldarg "
++            },
++            {
++              "Id": 98,
++              "StartLine": 17,
++              "EndLine": 17,
++              "StartColumn": 13,
++              "EndColumn": 78,
++              "Class": "XOProject.ShareRepository",
++              "Method": "GetBySymbol",
++              "MethodFullName": "System.Threading.Tasks.Task`1<System.Collections.Generic.List`1<XOProject.HourlyShareRate>> XOProject.ShareRepository::GetBySymbol(System.String)",
++              "Instruction": "IL_000e: ldarg "
++            }
++          ]
++        },
++        "XOProject\\Repository\\TradeRepository.cs": {
++          "Instructions": [
++            {
++              "Id": 99,
++              "StartLine": 10,
++              "EndLine": 10,
++              "StartColumn": 9,
++              "EndColumn": 58,
++              "Class": "XOProject.TradeRepository",
++              "Method": ".ctor",
++              "MethodFullName": "System.Void XOProject.TradeRepository::.ctor(XOProject.ExchangeContext)",
++              "Instruction": "IL_0000: ldarg "
++            },
++            {
++              "Id": 100,
++              "StartLine": 12,
++              "EndLine": 12,
++              "StartColumn": 13,
++              "EndColumn": 36,
++              "Class": "XOProject.TradeRepository",
++              "Method": ".ctor",
++              "MethodFullName": "System.Void XOProject.TradeRepository::.ctor(XOProject.ExchangeContext)",
++              "Instruction": "IL_0008: ldarg "
++            },
++            {
++              "Id": 101,
++              "StartLine": 17,
++              "EndLine": 17,
++              "StartColumn": 13,
++              "EndColumn": 88,
++              "Class": "XOProject.TradeRepository",
++              "Method": "GetAllTradings",
++              "MethodFullName": "System.Threading.Tasks.Task`1<System.Collections.Generic.List`1<XOProject.Trade>> XOProject.TradeRepository::GetAllTradings(System.Int32)",
++              "Instruction": "IL_000e: ldarg "
++            }
++          ]
++        }
++      },
++      "Locations": [
++        {
++          "File": "C:\\Users\\Elvin\\Desktop\\CrossExchange\\CrossExchange\\XOProject.Tests\\bin\\Debug\\netcoreapp2.0\\XO-Project.dll",
++          "BackupFile": "C:\\Users\\Elvin\\Desktop\\CrossExchange\\CrossExchange\\XOProject.Tests\\bin\\Debug\\netcoreapp2.0\\XO-Project.uninstrumented.dll",
++          "PdbFile": "C:\\Users\\Elvin\\Desktop\\CrossExchange\\CrossExchange\\XOProject.Tests\\bin\\Debug\\netcoreapp2.0\\XO-Project.pdb",
++          "BackupPdbFile": "C:\\Users\\Elvin\\Desktop\\CrossExchange\\CrossExchange\\XOProject.Tests\\bin\\Debug\\netcoreapp2.0\\XO-Project.uninstrumented.pdb"
++        }
++      ]
++    }
++  ]
++}
+\ No newline at end of file
+-- 
+2.17.0.windows.1
+
+
+From dac605cb1a4a16e3e9efdc666d80de1a38ba3f27 Mon Sep 17 00:00:00 2001
+From: elweezy <dzhamalov.elvin@gmail.com>
+Date: Sat, 13 Oct 2018 00:01:15 +0400
+Subject: [PATCH 3/3] My submission
+XOV:v3 new task
+
+---
+ XOProject/Dockerfile | 19 +++++++++++++++++++
+ 1 file changed, 19 insertions(+)
+ create mode 100644 XOProject/Dockerfile
+
+diff --git a/XOProject/Dockerfile b/XOProject/Dockerfile
+new file mode 100644
+index 0000000..6e6fede
+--- /dev/null
++++ b/XOProject/Dockerfile
+@@ -0,0 +1,19 @@
++FROM microsoft/aspnetcore:2.0 AS base
++WORKDIR /app
++EXPOSE 80
++
++FROM microsoft/aspnetcore-build:2.0 AS build
++WORKDIR /src
++COPY ["XO-Project/XO-Project.csproj", "XO-Project/"]
++RUN dotnet restore "XO-Project/XO-Project.csproj"
++COPY . .
++WORKDIR "/src/XO-Project"
++RUN dotnet build "XO-Project.csproj" -c Release -o /app
++
++FROM build AS publish
++RUN dotnet publish "XO-Project.csproj" -c Release -o /app
++
++FROM base AS final
++WORKDIR /app
++COPY --from=publish /app .
++ENTRYPOINT ["dotnet", "XO-Project.dll"]
+\ No newline at end of file
+-- 
+2.17.0.windows.1
+

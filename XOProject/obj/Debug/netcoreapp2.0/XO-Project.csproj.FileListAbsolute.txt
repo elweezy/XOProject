@@ -1,0 +1,11 @@
+C:\Users\Elvin\Desktop\CrossExchange\CrossExchange\XOProject\bin\Debug\netcoreapp2.0\XO-Project.deps.json
+C:\Users\Elvin\Desktop\CrossExchange\CrossExchange\XOProject\bin\Debug\netcoreapp2.0\XO-Project.runtimeconfig.json
+C:\Users\Elvin\Desktop\CrossExchange\CrossExchange\XOProject\bin\Debug\netcoreapp2.0\XO-Project.runtimeconfig.dev.json
+C:\Users\Elvin\Desktop\CrossExchange\CrossExchange\XOProject\bin\Debug\netcoreapp2.0\XO-Project.dll
+C:\Users\Elvin\Desktop\CrossExchange\CrossExchange\XOProject\bin\Debug\netcoreapp2.0\XO-Project.pdb
+C:\Users\Elvin\Desktop\CrossExchange\CrossExchange\XOProject\obj\Debug\netcoreapp2.0\XO-Project.csprojAssemblyReference.cache
+C:\Users\Elvin\Desktop\CrossExchange\CrossExchange\XOProject\obj\Debug\netcoreapp2.0\XO-Project.csproj.CoreCompileInputs.cache
+C:\Users\Elvin\Desktop\CrossExchange\CrossExchange\XOProject\obj\Debug\netcoreapp2.0\XO-Project.AssemblyInfoInputs.cache
+C:\Users\Elvin\Desktop\CrossExchange\CrossExchange\XOProject\obj\Debug\netcoreapp2.0\XO-Project.AssemblyInfo.cs
+C:\Users\Elvin\Desktop\CrossExchange\CrossExchange\XOProject\obj\Debug\netcoreapp2.0\XO-Project.dll
+C:\Users\Elvin\Desktop\CrossExchange\CrossExchange\XOProject\obj\Debug\netcoreapp2.0\XO-Project.pdb
